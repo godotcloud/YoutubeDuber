@@ -28,33 +28,31 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Bootstrap iOS Project Source Files (免解压自动生成完整工程源码)
+      - name: Bootstrap iOS Project Source Files (免解压自动写入完整工程源码)
         run: |
-          if [ ! -f "project.yml" ]; then
-            echo "未检测到解压后的工程源码，正在自动生成完整 iOS 工程文件（免解压单 YML 构建模式）..."
-            mkdir -p YouTubeDubber/Models YouTubeDubber/Services YouTubeDubber/Views
-          fi
-          if [ ! -f "project.yml" ]; then
+          echo "正在生成/更新完整 iOS 工程源码（免解压单 YML 构建模式）..."
+          mkdir -p YouTubeDubber/Models YouTubeDubber/Services YouTubeDubber/Views
           cat << 'EOF_FILE' > project.yml
           name: YouTubeDubber
           options:
             bundleIdPrefix: com.ai.youtubedubber
             deploymentTarget:
-              iOS: "18.0"
+              iOS: "17.0"
             xcodeVersion: "16.0"
             generateEmptyDirectories: true
 
           settings:
             base:
-              SWIFT_VERSION: "6.0"
+              SWIFT_VERSION: "5.0"
+              SWIFT_STRICT_CONCURRENCY: minimal
               TARGETED_DEVICE_FAMILY: "1,2"
-              IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+              IPHONEOS_DEPLOYMENT_TARGET: "17.0"
 
           targets:
             YouTubeDubber:
               type: application
               platform: iOS
-              deploymentTarget: "18.0"
+              deploymentTarget: "17.0"
               sources:
                 - path: YouTubeDubber
               info:
@@ -78,10 +76,8 @@ jobs:
                   MARKETING_VERSION: "1.0.0"
                   CURRENT_PROJECT_VERSION: "1"
                   CODE_SIGN_STYLE: Automatic
-                  ENABLE_USER_SCRIPT_SANDBOXING: YES
+                  ENABLE_USER_SCRIPT_SANDBOXING: NO
           EOF_FILE
-          fi
-          if [ ! -f "YouTubeDubber/Info.plist" ]; then
           cat << 'EOF_FILE' > YouTubeDubber/Info.plist
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -125,8 +121,6 @@ jobs:
           </dict>
           </plist>
           EOF_FILE
-          fi
-          if [ ! -f "YouTubeDubber/YouTubeDubberApp.swift" ]; then
           cat << 'EOF_FILE' > YouTubeDubber/YouTubeDubberApp.swift
           import SwiftUI
           import AVFAudio
@@ -144,13 +138,13 @@ jobs:
               }
 
               /// 配置混合音频会话：允许 YouTube 原声与实时中文配音同时播放并支持自动压低原声 (Ducking)
-              private func configureAudioSession() {
+              func configureAudioSession() {
                   do {
                       let session = AVAudioSession.sharedInstance()
                       try session.setCategory(
                           .playback,
                           mode: .spokenAudio,
-                          options: [.mixWithOthers, .duckOthers, .allowBluetooth, .allowAirPlay]
+                          options: [.mixWithOthers, .duckOthers]
                       )
                       try session.setActive(true)
                   } catch {
@@ -159,8 +153,6 @@ jobs:
               }
           }
           EOF_FILE
-          fi
-          if [ ! -f "YouTubeDubber/Models/SubtitleCue.swift" ]; then
           cat << 'EOF_FILE' > YouTubeDubber/Models/SubtitleCue.swift
           import Foundation
 
@@ -213,8 +205,6 @@ jobs:
               case cued = 5
           }
           EOF_FILE
-          fi
-          if [ ! -f "YouTubeDubber/Services/YouTubeWebPlayerBridge.swift" ]; then
           cat << 'EOF_FILE' > YouTubeDubber/Services/YouTubeWebPlayerBridge.swift
           import Foundation
           import WebKit
@@ -222,7 +212,7 @@ jobs:
 
           /// 负责 WKWebView 与 YouTube IFrame Player API 的双向通信
           @MainActor
-          final class YouTubePlayerController: NSObject, ObservableObject {
+          final class YouTubePlayerController: NSObject, ObservableObject, WKScriptMessageHandler {
               @Published var currentTime: TimeInterval = 0
               @Published var duration: TimeInterval = 0
               @Published var playerState: YTPlayerState = .unstarted
@@ -230,7 +220,7 @@ jobs:
               @Published var playbackRate: Double = 1.0
               @Published var currentVideoID: String = "aircAruvnKk" // 默认示例：3Blue1Brown 神经网络科普
 
-              fileprivate weak var webView: WKWebView?
+              weak var webView: WKWebView?
               var onTimeTick: ((TimeInterval, YTPlayerState) -> Void)?
               var onStateChange: ((YTPlayerState) -> Void)?
 
@@ -283,13 +273,11 @@ jobs:
                   }
               }
 
-              private func evaluateJS(_ script: String) {
+              func evaluateJS(_ script: String) {
                   webView?.evaluateJavaScript(script, completionHandler: nil)
               }
-          }
 
-          extension YouTubePlayerController: WKScriptMessageHandler {
-              nonisolated func userContentController(
+              func userContentController(
                   _ userContentController: WKUserContentController,
                   didReceive message: WKScriptMessage
               ) {
@@ -297,33 +285,31 @@ jobs:
                         let body = message.body as? [String: Any],
                         let event = body["event"] as? String else { return }
 
-                  Task { @MainActor in
-                      switch event {
-                      case "onReady":
-                          self.isReady = true
-                          if let dur = body["duration"] as? Double {
-                              self.duration = dur
-                          }
-                      case "onTimeUpdate":
-                          if let time = body["currentTime"] as? Double {
-                              self.currentTime = time
-                          }
-                          if let dur = body["duration"] as? Double, dur > 0 {
-                              self.duration = dur
-                          }
-                          if let rate = body["playbackRate"] as? Double {
-                              self.playbackRate = rate
-                          }
-                          self.onTimeTick?(self.currentTime, self.playerState)
-                      case "onStateChange":
-                          if let rawState = body["state"] as? Int,
-                             let state = YTPlayerState(rawValue: rawState) {
-                              self.playerState = state
-                              self.onStateChange?(state)
-                          }
-                      default:
-                          break
+                  switch event {
+                  case "onReady":
+                      self.isReady = true
+                      if let dur = body["duration"] as? Double {
+                          self.duration = dur
                       }
+                  case "onTimeUpdate":
+                      if let time = body["currentTime"] as? Double {
+                          self.currentTime = time
+                      }
+                      if let dur = body["duration"] as? Double, dur > 0 {
+                          self.duration = dur
+                      }
+                      if let rate = body["playbackRate"] as? Double {
+                          self.playbackRate = rate
+                      }
+                      self.onTimeTick?(self.currentTime, self.playerState)
+                  case "onStateChange":
+                      if let rawState = body["state"] as? Int,
+                         let state = YTPlayerState(rawValue: rawState) {
+                          self.playerState = state
+                          self.onStateChange?(state)
+                      }
+                  default:
+                      break
                   }
               }
           }
@@ -354,7 +340,7 @@ jobs:
 
               func updateUIView(_ uiView: WKWebView, context: Context) {}
 
-              private static func playerHTML(videoID: String) -> String {
+              static func playerHTML(videoID: String) -> String {
                   """
                   <!DOCTYPE html>
                   <html>
@@ -452,13 +438,11 @@ jobs:
               }
           }
           EOF_FILE
-          fi
-          if [ ! -f "YouTubeDubber/Services/TranscriptAndTranslationService.swift" ]; then
           cat << 'EOF_FILE' > YouTubeDubber/Services/TranscriptAndTranslationService.swift
           import Foundation
 
           /// 负责从 YouTube 获取时间轴字幕、合并破碎短句并实时流式翻译为口语化中文
-          actor TranscriptAndTranslationService {
+          struct TranscriptAndTranslationService: Sendable {
               struct CaptionTrackInfo: Sendable {
                   let baseUrl: String
                   let languageCode: String
@@ -510,8 +494,8 @@ jobs:
               }
 
               /// 从页面 `ytInitialPlayerResponse` 中解析最优字幕轨道（优先官方中文字幕，其次英文字幕或自动字幕）
-              private func extractPreferredCaptionTrack(from html: String) throws -> CaptionTrackInfo {
-                  guard let markerRange = html.range(of: ""captionTracks":") else {
+              func extractPreferredCaptionTrack(from html: String) throws -> CaptionTrackInfo {
+                  guard let markerRange = html.range(of: "\"captionTracks\":") else {
                       throw TranscriptError.noCaptionsAvailable
                   }
                   let sub = html[markerRange.upperBound...]
@@ -555,7 +539,7 @@ jobs:
               }
 
               /// 解析 YouTube JSON3 字幕格式
-              private func parseJSON3Captions(data: Data, alreadyChinese: Bool) throws -> [SubtitleCue] {
+              func parseJSON3Captions(data: Data, alreadyChinese: Bool) throws -> [SubtitleCue] {
                   guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                         let events = root["events"] as? [[String: Any]] else {
                       throw TranscriptError.captionParseFailed
@@ -593,7 +577,7 @@ jobs:
               }
 
               /// 将细碎的自动生成字幕合并为自然完整句，使中文配音语流连贯、不卡顿
-              private func mergeShortFragments(_ cues: [SubtitleCue]) -> [SubtitleCue] {
+              func mergeShortFragments(_ cues: [SubtitleCue]) -> [SubtitleCue] {
                   guard !cues.isEmpty else { return [] }
                   var merged: [SubtitleCue] = []
                   var buffer = cues[0]
@@ -707,7 +691,7 @@ jobs:
               }
 
               /// 零配置开箱即用翻译回退通道
-              private func fallbackFreeTranslate(cues: [SubtitleCue]) async -> [UUID: String] {
+              func fallbackFreeTranslate(cues: [SubtitleCue]) async -> [UUID: String] {
                   var result: [UUID: String] = [:]
                   for cue in cues {
                       guard let encoded = cue.originalText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
@@ -727,8 +711,6 @@ jobs:
               }
           }
           EOF_FILE
-          fi
-          if [ ! -f "YouTubeDubber/Services/RealtimeChineseDubbingEngine.swift" ]; then
           cat << 'EOF_FILE' > YouTubeDubber/Services/RealtimeChineseDubbingEngine.swift
           import Foundation
           import AVFAudio
@@ -738,7 +720,7 @@ jobs:
           /// 2. 根据每句台词的中文字数与剩余时间窗口，动态微调语速 (1.0x ~ 1.35x)，避免配音滞后堆积
           /// 3. 朗读期间自动通知播放器压低原视频音量 (Audio Ducking)，朗读结束平滑恢复
           @MainActor
-          final class RealtimeChineseDubbingEngine: NSObject, ObservableObject {
+          final class RealtimeChineseDubbingEngine: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegate {
               @Published var isDubbingEnabled: Bool = true
               @Published var activeCueID: UUID?
               @Published var isSpeaking: Bool = false
@@ -746,10 +728,10 @@ jobs:
               @Published var duckedOriginalVolume: Double = 18.0
               @Published var baseSpeechRateMultiplier: Double = 1.08
 
-              private let synthesizer = AVSpeechSynthesizer()
-              private var audioPlayer: AVAudioPlayer?
-              private var lastSpokenCueID: UUID?
-              private var onVolumeDuckChange: ((Int) -> Void)?
+              let synthesizer = AVSpeechSynthesizer()
+              var audioPlayer: AVAudioPlayer?
+              var lastSpokenCueID: UUID?
+              var onVolumeDuckChange: ((Int) -> Void)?
 
               override init() {
                   super.init()
@@ -812,7 +794,7 @@ jobs:
                   )
               }
 
-              private func speakChinese(
+              func speakChinese(
                   text: String,
                   targetDuration: TimeInterval,
                   apiKey: String,
@@ -842,7 +824,7 @@ jobs:
               }
 
               /// 使用 iOS 原生最高品质 zh-CN 神经网络语音合成，并根据时间窗口自适应语速
-              private func speakViaAppleNeuralVoice(text: String, targetDuration: TimeInterval) {
+              func speakViaAppleNeuralVoice(text: String, targetDuration: TimeInterval) {
                   let utterance = AVSpeechUtterance(string: text)
                   utterance.voice = Self.selectBestChineseVoice()
 
@@ -862,7 +844,7 @@ jobs:
               }
 
               /// 调用 OpenAI `/v1/audio/speech` (如 `gpt-4o-mini-tts` / `tts-1`) 生成超拟真流利中文配音
-              private func speakViaCloudNeuralTTS(
+              func speakViaCloudNeuralTTS(
                   text: String,
                   targetDuration: TimeInterval,
                   apiKey: String,
@@ -920,9 +902,7 @@ jobs:
                   }
                   return AVSpeechSynthesisVoice(language: "zh-CN")
               }
-          }
 
-          extension RealtimeChineseDubbingEngine: AVSpeechSynthesizerDelegate, AVAudioPlayerDelegate {
               nonisolated func speechSynthesizer(
                   _ synthesizer: AVSpeechSynthesizer,
                   didFinish utterance: AVSpeechUtterance
@@ -951,8 +931,6 @@ jobs:
               }
           }
           EOF_FILE
-          fi
-          if [ ! -f "YouTubeDubber/Views/ContentView.swift" ]; then
           cat << 'EOF_FILE' > YouTubeDubber/Views/ContentView.swift
           import SwiftUI
 
@@ -1118,7 +1096,7 @@ jobs:
                   }
               }
 
-              private func setupCallbacks() {
+              func setupCallbacks() {
                   dubbingEngine.bindVolumeDuckHandler { targetVol in
                       playerController.setOriginalVolume(targetVol)
                   }
@@ -1141,7 +1119,7 @@ jobs:
                   }
               }
 
-              private func loadNewVideo() {
+              func loadNewVideo() {
                   guard let vid = YouTubePlayerController.extractVideoID(from: urlInput) else {
                       statusMessage = "链接格式无效，请输入有效的 YouTube URL 或 11 位 ID"
                       return
@@ -1153,7 +1131,7 @@ jobs:
                   }
               }
 
-              private func fetchAndTranslateSubtitles(for videoID: String) async {
+              func fetchAndTranslateSubtitles(for videoID: String) async {
                   isLoadingCaptions = true
                   statusMessage = "正在提取 YouTube 时间轴字幕..."
                   do {
@@ -1161,7 +1139,6 @@ jobs:
                       self.cues = fetched
                       statusMessage = "已加载 \(fetched.count) 句时间轴，正在流式生成中文配音台词..."
 
-                      // 按 20 句一组分批流式翻译，保证前几句立刻可配音，无需等待整部视频翻译完成
                       let batchSize = 20
                       for start in stride(from: 0, to: fetched.count, by: batchSize) {
                           let end = min(start + batchSize, fetched.count)
@@ -1186,7 +1163,7 @@ jobs:
                   }
               }
 
-              private func formatTimestamp(_ seconds: TimeInterval) -> String {
+              func formatTimestamp(_ seconds: TimeInterval) -> String {
                   let total = max(0, Int(seconds))
                   let mins = total / 60
                   let secs = total % 60
@@ -1194,8 +1171,6 @@ jobs:
               }
           }
           EOF_FILE
-          fi
-          if [ ! -f "YouTubeDubber/Views/SettingsSheetView.swift" ]; then
           cat << 'EOF_FILE' > YouTubeDubber/Views/SettingsSheetView.swift
           import SwiftUI
 
@@ -1262,7 +1237,6 @@ jobs:
               }
           }
           EOF_FILE
-          fi
 
       - name: Verify macOS & Xcode Environment
         run: |
