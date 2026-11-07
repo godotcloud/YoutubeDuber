@@ -1,0 +1,1320 @@
+name: iOS Build & Unsigned IPA (Zero-Unzip Standalone Workflow)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+    inputs:
+      runner_os:
+        description: 'GitHub Hosted macOS Runner (macOS 14 retired on Nov 2, 2026)'
+        required: true
+        default: 'macos-15'
+        type: choice
+        options:
+          - macos-15
+          - macos-26
+          - macos-latest
+
+jobs:
+  build-ios:
+    name: Build YouTubeDubber on ${{ inputs.runner_os || 'macos-15' }}
+    # 注意：GitHub Actions 已于 2026-11-02 正式退役 macos-14 镜像
+    # 现默认使用 macos-15 (Xcode 16.x)，也可切换至 macos-26 或 macos-latest
+    runs-on: ${{ inputs.runner_os || 'macos-15' }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Bootstrap iOS Project Source Files (免解压自动生成完整工程源码)
+        run: |
+          if [ ! -f "project.yml" ]; then
+            echo "未检测到解压后的工程源码，正在自动生成完整 iOS 工程文件（免解压单 YML 构建模式）..."
+            mkdir -p YouTubeDubber/Models YouTubeDubber/Services YouTubeDubber/Views
+          fi
+          if [ ! -f "project.yml" ]; then
+          cat << 'EOF_FILE' > project.yml
+          name: YouTubeDubber
+          options:
+            bundleIdPrefix: com.ai.youtubedubber
+            deploymentTarget:
+              iOS: "18.0"
+            xcodeVersion: "16.0"
+            generateEmptyDirectories: true
+
+          settings:
+            base:
+              SWIFT_VERSION: "6.0"
+              TARGETED_DEVICE_FAMILY: "1,2"
+              IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+
+          targets:
+            YouTubeDubber:
+              type: application
+              platform: iOS
+              deploymentTarget: "18.0"
+              sources:
+                - path: YouTubeDubber
+              info:
+                path: YouTubeDubber/Info.plist
+                properties:
+                  CFBundleDisplayName: "YT中文配音"
+                  CFBundleShortVersionString: "1.0.0"
+                  CFBundleVersion: "1"
+                  UILaunchScreen: {}
+                  UIBackgroundModes:
+                    - audio
+                  NSAppTransportSecurity:
+                    NSAllowsArbitraryLoads: true
+                  UISupportedInterfaceOrientations:
+                    - UIInterfaceOrientationPortrait
+                    - UIInterfaceOrientationLandscapeLeft
+                    - UIInterfaceOrientationLandscapeRight
+              settings:
+                base:
+                  PRODUCT_BUNDLE_IDENTIFIER: com.ai.youtubedubber.app
+                  MARKETING_VERSION: "1.0.0"
+                  CURRENT_PROJECT_VERSION: "1"
+                  CODE_SIGN_STYLE: Automatic
+                  ENABLE_USER_SCRIPT_SANDBOXING: YES
+          EOF_FILE
+          fi
+          if [ ! -f "YouTubeDubber/Info.plist" ]; then
+          cat << 'EOF_FILE' > YouTubeDubber/Info.plist
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleDevelopmentRegion</key>
+              <string>zh_CN</string>
+              <key>CFBundleDisplayName</key>
+              <string>YT中文配音</string>
+              <key>CFBundleExecutable</key>
+              <string>$(EXECUTABLE_NAME)</string>
+              <key>CFBundleIdentifier</key>
+              <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+              <key>CFBundleInfoDictionaryVersion</key>
+              <string>6.0</string>
+              <key>CFBundleName</key>
+              <string>$(PRODUCT_NAME)</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>1.0.0</string>
+              <key>CFBundleVersion</key>
+              <string>1</string>
+              <key>UILaunchScreen</key>
+              <dict/>
+              <key>UIBackgroundModes</key>
+              <array>
+                  <string>audio</string>
+              </array>
+              <key>NSAppTransportSecurity</key>
+              <dict>
+                  <key>NSAllowsArbitraryLoads</key>
+                  <true/>
+              </dict>
+              <key>UISupportedInterfaceOrientations</key>
+              <array>
+                  <string>UIInterfaceOrientationPortrait</string>
+                  <string>UIInterfaceOrientationLandscapeLeft</string>
+                  <string>UIInterfaceOrientationLandscapeRight</string>
+              </array>
+          </dict>
+          </plist>
+          EOF_FILE
+          fi
+          if [ ! -f "YouTubeDubber/YouTubeDubberApp.swift" ]; then
+          cat << 'EOF_FILE' > YouTubeDubber/YouTubeDubberApp.swift
+          import SwiftUI
+          import AVFAudio
+
+          @main
+          struct YouTubeDubberApp: App {
+              init() {
+                  configureAudioSession()
+              }
+
+              var body: some Scene {
+                  WindowGroup {
+                      ContentView()
+                  }
+              }
+
+              /// 配置混合音频会话：允许 YouTube 原声与实时中文配音同时播放并支持自动压低原声 (Ducking)
+              private func configureAudioSession() {
+                  do {
+                      let session = AVAudioSession.sharedInstance()
+                      try session.setCategory(
+                          .playback,
+                          mode: .spokenAudio,
+                          options: [.mixWithOthers, .duckOthers, .allowBluetooth, .allowAirPlay]
+                      )
+                      try session.setActive(true)
+                  } catch {
+                      print("[AudioSession] 配置失败: \(error.localizedDescription)")
+                  }
+              }
+          }
+          EOF_FILE
+          fi
+          if [ ! -f "YouTubeDubber/Models/SubtitleCue.swift" ]; then
+          cat << 'EOF_FILE' > YouTubeDubber/Models/SubtitleCue.swift
+          import Foundation
+
+          /// 单条时间轴字幕与中文配音状态
+          struct SubtitleCue: Identifiable, Equatable, Sendable {
+              let id: UUID
+              let index: Int
+              let startTime: TimeInterval
+              let duration: TimeInterval
+              let originalText: String
+              var translatedZH: String?
+              var isDubbed: Bool = false
+
+              var endTime: TimeInterval {
+                  startTime + duration
+              }
+
+              init(
+                  id: UUID = UUID(),
+                  index: Int,
+                  startTime: TimeInterval,
+                  duration: TimeInterval,
+                  originalText: String,
+                  translatedZH: String? = nil
+              ) {
+                  self.id = id
+                  self.index = index
+                  self.startTime = startTime
+                  self.duration = duration
+                  self.originalText = originalText
+                  self.translatedZH = translatedZH
+              }
+          }
+
+          /// 语音合成引擎模式
+          enum DubbingVoiceEngine: String, CaseIterable, Identifiable {
+              case neuralCloudTTS = "OpenAI / 兼容云端流式神经语音 (推荐)"
+              case applePremiumTTS = "iOS 原生 AVSpeechSynthesizer (离线免费)"
+
+              var id: String { rawValue }
+          }
+
+          /// 播放器状态枚举（与 YouTube IFrame Player API 对应）
+          enum YTPlayerState: Int {
+              case unstarted = -1
+              case ended = 0
+              case playing = 1
+              case paused = 2
+              case buffering = 3
+              case cued = 5
+          }
+          EOF_FILE
+          fi
+          if [ ! -f "YouTubeDubber/Services/YouTubeWebPlayerBridge.swift" ]; then
+          cat << 'EOF_FILE' > YouTubeDubber/Services/YouTubeWebPlayerBridge.swift
+          import Foundation
+          import WebKit
+          import SwiftUI
+
+          /// 负责 WKWebView 与 YouTube IFrame Player API 的双向通信
+          @MainActor
+          final class YouTubePlayerController: NSObject, ObservableObject {
+              @Published var currentTime: TimeInterval = 0
+              @Published var duration: TimeInterval = 0
+              @Published var playerState: YTPlayerState = .unstarted
+              @Published var isReady: Bool = false
+              @Published var playbackRate: Double = 1.0
+              @Published var currentVideoID: String = "aircAruvnKk" // 默认示例：3Blue1Brown 神经网络科普
+
+              fileprivate weak var webView: WKWebView?
+              var onTimeTick: ((TimeInterval, YTPlayerState) -> Void)?
+              var onStateChange: ((YTPlayerState) -> Void)?
+
+              /// 解析完整 YouTube URL 或 11 位 Video ID
+              static func extractVideoID(from input: String) -> String? {
+                  let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+                  if trimmed.count == 11, !trimmed.contains("/") {
+                      return trimmed
+                  }
+                  guard let url = URL(string: trimmed) else { return nil }
+                  if let host = url.host?.lowercased() {
+                      if host.contains("youtu.be") {
+                          return String(url.path.dropFirst().prefix(11))
+                      }
+                      if host.contains("youtube.com") {
+                          if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                             let v = components.queryItems?.first(where: { $0.name == "v" })?.value {
+                              return String(v.prefix(11))
+                          }
+                          let parts = url.pathComponents
+                          if let idx = parts.firstIndex(where: { $0 == "shorts" || $0 == "embed" || $0 == "live" }),
+                             parts.count > idx + 1 {
+                              return String(parts[idx + 1].prefix(11))
+                          }
+                      }
+                  }
+                  return nil
+              }
+
+              func loadVideo(id: String) {
+                  currentVideoID = id
+                  evaluateJS("loadNewVideo('\(id)');")
+              }
+
+              /// 动态调节 YouTube 原视频音量 (0 ~ 100)，用于在中文配音朗读时自动压低原声
+              func setOriginalVolume(_ volume: Int) {
+                  let clamped = max(0, min(100, volume))
+                  evaluateJS("setPlayerVolume(\(clamped));")
+              }
+
+              func seek(to seconds: TimeInterval) {
+                  evaluateJS("seekToTime(\(seconds));")
+              }
+
+              func togglePlayPause() {
+                  if playerState == .playing {
+                      evaluateJS("pauseVideo();")
+                  } else {
+                      evaluateJS("playVideo();")
+                  }
+              }
+
+              private func evaluateJS(_ script: String) {
+                  webView?.evaluateJavaScript(script, completionHandler: nil)
+              }
+          }
+
+          extension YouTubePlayerController: WKScriptMessageHandler {
+              nonisolated func userContentController(
+                  _ userContentController: WKUserContentController,
+                  didReceive message: WKScriptMessage
+              ) {
+                  guard message.name == "ytBridge",
+                        let body = message.body as? [String: Any],
+                        let event = body["event"] as? String else { return }
+
+                  Task { @MainActor in
+                      switch event {
+                      case "onReady":
+                          self.isReady = true
+                          if let dur = body["duration"] as? Double {
+                              self.duration = dur
+                          }
+                      case "onTimeUpdate":
+                          if let time = body["currentTime"] as? Double {
+                              self.currentTime = time
+                          }
+                          if let dur = body["duration"] as? Double, dur > 0 {
+                              self.duration = dur
+                          }
+                          if let rate = body["playbackRate"] as? Double {
+                              self.playbackRate = rate
+                          }
+                          self.onTimeTick?(self.currentTime, self.playerState)
+                      case "onStateChange":
+                          if let rawState = body["state"] as? Int,
+                             let state = YTPlayerState(rawValue: rawState) {
+                              self.playerState = state
+                              self.onStateChange?(state)
+                          }
+                      default:
+                          break
+                      }
+                  }
+              }
+          }
+
+          /// SwiftUI 封装的 YouTube WKWebView 播放器
+          struct YouTubeWebPlayerView: UIViewRepresentable {
+              @ObservedObject var controller: YouTubePlayerController
+
+              func makeUIView(context: Context) -> WKWebView {
+                  let contentController = WKUserContentController()
+                  contentController.add(controller, name: "ytBridge")
+
+                  let config = WKWebViewConfiguration()
+                  config.userContentController = contentController
+                  config.allowsInlineMediaPlayback = true
+                  config.mediaTypesRequiringUserActionForPlayback = []
+
+                  let webView = WKWebView(frame: .zero, configuration: config)
+                  webView.scrollView.isScrollEnabled = false
+                  webView.isOpaque = false
+                  webView.backgroundColor = .black
+
+                  controller.webView = webView
+                  let html = Self.playerHTML(videoID: controller.currentVideoID)
+                  webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube.com"))
+                  return webView
+              }
+
+              func updateUIView(_ uiView: WKWebView, context: Context) {}
+
+              private static func playerHTML(videoID: String) -> String {
+                  """
+                  <!DOCTYPE html>
+                  <html>
+                  <head>
+                      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                      <style>
+                          html, body { margin: 0; padding: 0; width: 100%; height: 100%; background-color: #000; overflow: hidden; }
+                          #player { width: 100%; height: 100%; }
+                      </style>
+                  </head>
+                  <body>
+                      <div id="player"></div>
+                      <script src="https://www.youtube.com/iframe_api"></script>
+                      <script>
+                          var player;
+                          var timer = null;
+
+                          function onYouTubeIframeAPIReady() {
+                              player = new YT.Player('player', {
+                                  height: '100%',
+                                  width: '100%',
+                                  videoId: '\(videoID)',
+                                  playerVars: {
+                                      'playsinline': 1,
+                                      'controls': 1,
+                                      'rel': 0,
+                                      'cc_load_policy': 0,
+                                      'origin': 'https://www.youtube.com'
+                                  },
+                                  events: {
+                                      'onReady': onPlayerReady,
+                                      'onStateChange': onPlayerStateChange
+                                  }
+                              });
+                          }
+
+                          function onPlayerReady(event) {
+                              window.webkit.messageHandlers.ytBridge.postMessage({
+                                  event: 'onReady',
+                                  duration: player.getDuration() || 0
+                              });
+                              startTimer();
+                          }
+
+                          function onPlayerStateChange(event) {
+                              window.webkit.messageHandlers.ytBridge.postMessage({
+                                  event: 'onStateChange',
+                                  state: event.data
+                              });
+                          }
+
+                          function startTimer() {
+                              if (timer) clearInterval(timer);
+                              timer = setInterval(function() {
+                                  if (player && player.getCurrentTime) {
+                                      window.webkit.messageHandlers.ytBridge.postMessage({
+                                          event: 'onTimeUpdate',
+                                          currentTime: player.getCurrentTime() || 0,
+                                          duration: player.getDuration() || 0,
+                                          playbackRate: player.getPlaybackRate ? player.getPlaybackRate() : 1.0
+                                      });
+                                  }
+                              }, 100);
+                          }
+
+                          function loadNewVideo(videoId) {
+                              if (player && player.loadVideoById) {
+                                  player.loadVideoById(videoId);
+                              }
+                          }
+
+                          function setPlayerVolume(vol) {
+                              if (player && player.setVolume) {
+                                  player.setVolume(vol);
+                              }
+                          }
+
+                          function seekToTime(sec) {
+                              if (player && player.seekTo) {
+                                  player.seekTo(sec, true);
+                              }
+                          }
+
+                          function playVideo() {
+                              if (player && player.playVideo) player.playVideo();
+                          }
+
+                          function pauseVideo() {
+                              if (player && player.pauseVideo) player.pauseVideo();
+                          }
+                      </script>
+                  </body>
+                  </html>
+                  """
+              }
+          }
+          EOF_FILE
+          fi
+          if [ ! -f "YouTubeDubber/Services/TranscriptAndTranslationService.swift" ]; then
+          cat << 'EOF_FILE' > YouTubeDubber/Services/TranscriptAndTranslationService.swift
+          import Foundation
+
+          /// 负责从 YouTube 获取时间轴字幕、合并破碎短句并实时流式翻译为口语化中文
+          actor TranscriptAndTranslationService {
+              struct CaptionTrackInfo: Sendable {
+                  let baseUrl: String
+                  let languageCode: String
+                  let isChinese: Bool
+              }
+
+              enum TranscriptError: LocalizedError {
+                  case videoPageFetchFailed
+                  case noCaptionsAvailable
+                  case captionParseFailed
+
+                  var errorDescription: String? {
+                      switch self {
+                      case .videoPageFetchFailed: return "无法获取 YouTube 视频详情页"
+                      case .noCaptionsAvailable: return "该视频未提供可用字幕轨道 (Captions)"
+                      case .captionParseFailed: return "字幕轨道解析失败"
+                      }
+                  }
+              }
+
+              /// 拉取指定 YouTube Video ID 的字幕并合并为适合自然配音的断句
+              func fetchMergedCues(for videoID: String) async throws -> [SubtitleCue] {
+                  let watchURL = URL(string: "https://www.youtube.com/watch?v=\(videoID)&hl=zh-CN")!
+                  var request = URLRequest(url: watchURL)
+                  request.setValue(
+                      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+                      forHTTPHeaderField: "User-Agent"
+                  )
+                  request.setValue("zh-CN,zh;q=0.9,en;q=0.8", forHTTPHeaderField: "Accept-Language")
+
+                  let (data, response) = try await URLSession.shared.data(for: request)
+                  guard let httpResp = response as? HTTPURLResponse, httpResp.statusCode == 200,
+                        let html = String(data: data, encoding: .utf8) else {
+                      throw TranscriptError.videoPageFetchFailed
+                  }
+
+                  let track = try extractPreferredCaptionTrack(from: html)
+                  let json3URLString = track.baseUrl.contains("fmt=json3")
+                      ? track.baseUrl
+                      : "\(track.baseUrl)&fmt=json3"
+
+                  guard let trackURL = URL(string: json3URLString) else {
+                      throw TranscriptError.captionParseFailed
+                  }
+
+                  let (trackData, _) = try await URLSession.shared.data(from: trackURL)
+                  let rawCues = try parseJSON3Captions(data: trackData, alreadyChinese: track.isChinese)
+                  return mergeShortFragments(rawCues)
+              }
+
+              /// 从页面 `ytInitialPlayerResponse` 中解析最优字幕轨道（优先官方中文字幕，其次英文字幕或自动字幕）
+              private func extractPreferredCaptionTrack(from html: String) throws -> CaptionTrackInfo {
+                  guard let markerRange = html.range(of: ""captionTracks":") else {
+                      throw TranscriptError.noCaptionsAvailable
+                  }
+                  let sub = html[markerRange.upperBound...]
+                  guard let openBracket = sub.firstIndex(of: "["),
+                        let closeBracket = sub.firstIndex(of: "]") else {
+                      throw TranscriptError.noCaptionsAvailable
+                  }
+
+                  let jsonArrayString = String(sub[openBracket...closeBracket])
+                  guard let jsonData = jsonArrayString.data(using: .utf8),
+                        let tracks = try? JSONSerialization.jsonObject(with: jsonData) as? [[String: Any]],
+                        !tracks.isEmpty else {
+                      throw TranscriptError.noCaptionsAvailable
+                  }
+
+                  // 优先查找原生中文轨道
+                  if let zhTrack = tracks.first(where: {
+                      let code = ($0["languageCode"] as? String ?? "").lowercased()
+                      return code.hasPrefix("zh")
+                  }), let baseUrl = zhTrack["baseUrl"] as? String {
+                      return CaptionTrackInfo(
+                          baseUrl: baseUrl,
+                          languageCode: zhTrack["languageCode"] as? String ?? "zh-CN",
+                          isChinese: true
+                      )
+                  }
+
+                  // 其次查找英文或首个可用轨道
+                  let preferred = tracks.first(where: {
+                      ($0["languageCode"] as? String ?? "").lowercased().hasPrefix("en")
+                  }) ?? tracks[0]
+
+                  guard let baseUrl = preferred["baseUrl"] as? String else {
+                      throw TranscriptError.noCaptionsAvailable
+                  }
+                  return CaptionTrackInfo(
+                      baseUrl: baseUrl,
+                      languageCode: preferred["languageCode"] as? String ?? "en",
+                      isChinese: false
+                  )
+              }
+
+              /// 解析 YouTube JSON3 字幕格式
+              private func parseJSON3Captions(data: Data, alreadyChinese: Bool) throws -> [SubtitleCue] {
+                  guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                        let events = root["events"] as? [[String: Any]] else {
+                      throw TranscriptError.captionParseFailed
+                  }
+
+                  var result: [SubtitleCue] = []
+                  var idx = 0
+
+                  for event in events {
+                      guard let tStartMs = event["tStartMs"] as? Double,
+                            let segs = event["segs"] as? [[String: Any]] else { continue }
+                      let dDurationMs = (event["dDurationMs"] as? Double) ?? 2500
+
+                      let combinedText = segs
+                          .compactMap { $0["utf8"] as? String }
+                          .joined()
+                          .replacingOccurrences(of: "\n", with: " ")
+                          .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                      guard !combinedText.isEmpty, combinedText != "[Music]", combinedText != "[Applause]" else {
+                          continue
+                      }
+
+                      let cue = SubtitleCue(
+                          index: idx,
+                          startTime: tStartMs / 1000.0,
+                          duration: max(0.8, dDurationMs / 1000.0),
+                          originalText: combinedText,
+                          translatedZH: alreadyChinese ? combinedText : nil
+                      )
+                      result.append(cue)
+                      idx += 1
+                  }
+                  return result
+              }
+
+              /// 将细碎的自动生成字幕合并为自然完整句，使中文配音语流连贯、不卡顿
+              private func mergeShortFragments(_ cues: [SubtitleCue]) -> [SubtitleCue] {
+                  guard !cues.isEmpty else { return [] }
+                  var merged: [SubtitleCue] = []
+                  var buffer = cues[0]
+
+                  for i in 1..<cues.count {
+                      let next = cues[i]
+                      let gap = next.startTime - buffer.endTime
+                      let endsWithSentencePunctuation = buffer.originalText.hasSuffix(".")
+                          || buffer.originalText.hasSuffix("?")
+                          || buffer.originalText.hasSuffix("!")
+                          || buffer.originalText.hasSuffix("。")
+                          || buffer.originalText.hasSuffix("？")
+
+                      // 若两段字幕间隔小于 0.6s 且前一句未结束且总时长不超过 7.5s，则合并为一个配音单元
+                      if !endsWithSentencePunctuation && gap < 0.6 && (next.endTime - buffer.startTime) <= 7.5 {
+                          let newText = buffer.originalText + " " + next.originalText
+                          let newZh: String?
+                          if let bZh = buffer.translatedZH, let nZh = next.translatedZH {
+                              newZh = bZh + nZh
+                          } else {
+                              newZh = nil
+                          }
+                          buffer = SubtitleCue(
+                              id: buffer.id,
+                              index: merged.count,
+                              startTime: buffer.startTime,
+                              duration: next.endTime - buffer.startTime,
+                              originalText: newText,
+                              translatedZH: newZh
+                          )
+                      } else {
+                          merged.append(buffer)
+                          buffer = SubtitleCue(
+                              id: next.id,
+                              index: merged.count,
+                              startTime: next.startTime,
+                              duration: next.duration,
+                              originalText: next.originalText,
+                              translatedZH: next.translatedZH
+                          )
+                      }
+                  }
+                  merged.append(buffer)
+                  return merged
+              }
+
+              /// 批量将外文字幕翻译为贴合视频时长的自然口语化中文（支持 OpenAI / DeepSeek / 兼容接口）
+              func translateBatchToSpokenChinese(
+                  cues: [SubtitleCue],
+                  apiKey: String,
+                  baseURL: String,
+                  model: String
+              ) async throws -> [UUID: String] {
+                  let untranslated = cues.filter { ($0.translatedZH ?? "").isEmpty }
+                  guard !untranslated.isEmpty else { return [:] }
+
+                  // 若未配置云端 API Key，回退到快速免费翻译接口以便开箱即用
+                  if apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                      return await fallbackFreeTranslate(cues: untranslated)
+                  }
+
+                  let endpoint = URL(string: "\(baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/chat/completions")!
+                  var request = URLRequest(url: endpoint)
+                  request.httpMethod = "POST"
+                  request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                  request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+
+                  let payloadLines = untranslated.enumerated().map { idx, cue in
+                      "[\(idx)] (\(String(format: "%.1fs", cue.duration))): \(cue.originalText)"
+                  }.joined(separator: "\n")
+
+                  let systemPrompt = """
+                  你是一位专业的 YouTube 视频中文同声传译配音员。
+                  请将输入的每行字幕翻译为自然、流利、口语化的简体中文配音台词，字数需匹配括号内的时长以便语速自然。
+                  严格按原行号格式输出：`[行号] 中文配音台词`，不要添加任何多余解释。
+                  """
+
+                  let body: [String: Any] = [
+                      "model": model,
+                      "temperature": 0.3,
+                      "messages": [
+                          ["role": "system", "content": systemPrompt],
+                          ["role": "user", "content": payloadLines]
+                      ]
+                  ]
+                  request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+                  let (data, _) = try await URLSession.shared.data(for: request)
+                  guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                        let choices = json["choices"] as? [[String: Any]],
+                        let message = choices.first?["message"] as? [String: Any],
+                        let content = message["content"] as? String else {
+                      return await fallbackFreeTranslate(cues: untranslated)
+                  }
+
+                  var map: [UUID: String] = [:]
+                  for line in content.components(separatedBy: .newlines) {
+                      let trimmed = line.trimmingCharacters(in: .whitespaces)
+                      guard trimmed.hasPrefix("["),
+                            let closeIdx = trimmed.firstIndex(of: "]") else { continue }
+                      let numStr = String(trimmed[trimmed.index(after: trimmed.startIndex)..<closeIdx])
+                      if let idx = Int(numStr), idx >= 0, idx < untranslated.count {
+                          let zh = String(trimmed[trimmed.index(after: closeIdx)...])
+                              .trimmingCharacters(in: .whitespaces)
+                          if !zh.isEmpty {
+                              map[untranslated[idx].id] = zh
+                          }
+                      }
+                  }
+                  return map
+              }
+
+              /// 零配置开箱即用翻译回退通道
+              private func fallbackFreeTranslate(cues: [SubtitleCue]) async -> [UUID: String] {
+                  var result: [UUID: String] = [:]
+                  for cue in cues {
+                      guard let encoded = cue.originalText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                            let url = URL(string: "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-CN&dt=t&q=\(encoded)") else {
+                          continue
+                      }
+                      if let (data, _) = try? await URLSession.shared.data(from: url),
+                         let arr = try? JSONSerialization.jsonObject(with: data) as? [Any],
+                         let sentences = arr.first as? [[Any]] {
+                          let translated = sentences.compactMap { $0.first as? String }.joined()
+                          if !translated.isEmpty {
+                              result[cue.id] = translated
+                          }
+                      }
+                  }
+                  return result
+              }
+          }
+          EOF_FILE
+          fi
+          if [ ! -f "YouTubeDubber/Services/RealtimeChineseDubbingEngine.swift" ]; then
+          cat << 'EOF_FILE' > YouTubeDubber/Services/RealtimeChineseDubbingEngine.swift
+          import Foundation
+          import AVFAudio
+
+          /// 实时中文配音调度与合成引擎：
+          /// 1. 监听 YouTube 播放时间轴，提前触发中文语音合成并对齐时间戳
+          /// 2. 根据每句台词的中文字数与剩余时间窗口，动态微调语速 (1.0x ~ 1.35x)，避免配音滞后堆积
+          /// 3. 朗读期间自动通知播放器压低原视频音量 (Audio Ducking)，朗读结束平滑恢复
+          @MainActor
+          final class RealtimeChineseDubbingEngine: NSObject, ObservableObject {
+              @Published var isDubbingEnabled: Bool = true
+              @Published var activeCueID: UUID?
+              @Published var isSpeaking: Bool = false
+              @Published var voiceEngine: DubbingVoiceEngine = .applePremiumTTS
+              @Published var duckedOriginalVolume: Double = 18.0
+              @Published var baseSpeechRateMultiplier: Double = 1.08
+
+              private let synthesizer = AVSpeechSynthesizer()
+              private var audioPlayer: AVAudioPlayer?
+              private var lastSpokenCueID: UUID?
+              private var onVolumeDuckChange: ((Int) -> Void)?
+
+              override init() {
+                  super.init()
+                  synthesizer.delegate = self
+              }
+
+              func bindVolumeDuckHandler(_ handler: @escaping (Int) -> Void) {
+                  self.onVolumeDuckChange = handler
+              }
+
+              /// 当用户拖动进度条或暂停视频时立即中止当前配音并重同步
+              func stopImmediately() {
+                  if synthesizer.isSpeaking {
+                      synthesizer.stopSpeaking(at: .immediate)
+                  }
+                  audioPlayer?.stop()
+                  isSpeaking = false
+                  onVolumeDuckChange?(100)
+              }
+
+              /// 在播放器每 100ms 时间回调中调用，匹配当前时间点的中文字幕并触发流利配音
+              func syncWithPlayback(
+                  currentTime: TimeInterval,
+                  playerState: YTPlayerState,
+                  videoPlaybackRate: Double,
+                  cues: [SubtitleCue],
+                  apiKey: String,
+                  ttsBaseURL: String
+              ) {
+                  guard isDubbingEnabled else { return }
+
+                  if playerState != .playing {
+                      if isSpeaking {
+                          stopImmediately()
+                      }
+                      return
+                  }
+
+                  // 查找当前所处时间窗口的字幕（允许提前 0.08s 触发以消除合成首包延迟）
+                  guard let currentCue = cues.first(where: {
+                      currentTime >= ($0.startTime - 0.08) && currentTime < $0.endTime
+                  }) else {
+                      return
+                  }
+
+                  activeCueID = currentCue.id
+
+                  // 防止同一句字幕重复朗读
+                  guard lastSpokenCueID != currentCue.id else { return }
+                  guard let zhText = currentCue.translatedZH, !zhText.isEmpty else { return }
+
+                  lastSpokenCueID = currentCue.id
+                  let remainingWindow = max(0.8, (currentCue.endTime - currentTime) / max(0.5, videoPlaybackRate))
+
+                  speakChinese(
+                      text: zhText,
+                      targetDuration: remainingWindow,
+                      apiKey: apiKey,
+                      ttsBaseURL: ttsBaseURL
+                  )
+              }
+
+              private func speakChinese(
+                  text: String,
+                  targetDuration: TimeInterval,
+                  apiKey: String,
+                  ttsBaseURL: String
+              ) {
+                  // 如果正在说上一句且下一句已经开始，平滑切入新句以保持严密声画同步
+                  if synthesizer.isSpeaking {
+                      synthesizer.stopSpeaking(at: .immediate)
+                  }
+                  audioPlayer?.stop()
+
+                  isSpeaking = true
+                  onVolumeDuckChange?(Int(duckedOriginalVolume))
+
+                  if voiceEngine == .neuralCloudTTS && !apiKey.trimmingCharacters(in: .whitespaces).isEmpty {
+                      Task {
+                          await speakViaCloudNeuralTTS(
+                              text: text,
+                              targetDuration: targetDuration,
+                              apiKey: apiKey,
+                              baseURL: ttsBaseURL
+                          )
+                      }
+                  } else {
+                      speakViaAppleNeuralVoice(text: text, targetDuration: targetDuration)
+                  }
+              }
+
+              /// 使用 iOS 原生最高品质 zh-CN 神经网络语音合成，并根据时间窗口自适应语速
+              private func speakViaAppleNeuralVoice(text: String, targetDuration: TimeInterval) {
+                  let utterance = AVSpeechUtterance(string: text)
+                  utterance.voice = Self.selectBestChineseVoice()
+
+                  // 估算正常语速（约每秒 4.2 个汉字）所需时长，若字幕时间窗较短则自动提速防止拖尾
+                  let charCount = Double(text.count)
+                  let estimatedNormalSeconds = max(1.0, charCount / 4.2)
+                  let adaptiveRatio = min(1.38, max(0.95, estimatedNormalSeconds / targetDuration)) * baseSpeechRateMultiplier
+
+                  let defaultRate = Double(AVSpeechUtteranceDefaultSpeechRate)
+                  utterance.rate = Float(min(0.62, max(0.45, defaultRate * adaptiveRatio)))
+                  utterance.pitchMultiplier = 1.02
+                  utterance.volume = 1.0
+                  utterance.preUtteranceDelay = 0.0
+                  utterance.postUtteranceDelay = 0.02
+
+                  synthesizer.speak(utterance)
+              }
+
+              /// 调用 OpenAI `/v1/audio/speech` (如 `gpt-4o-mini-tts` / `tts-1`) 生成超拟真流利中文配音
+              private func speakViaCloudNeuralTTS(
+                  text: String,
+                  targetDuration: TimeInterval,
+                  apiKey: String,
+                  baseURL: String
+              ) async {
+                  let charCount = Double(text.count)
+                  let estimatedSeconds = max(1.0, charCount / 4.3)
+                  let speed = min(1.35, max(0.95, (estimatedSeconds / targetDuration) * baseSpeechRateMultiplier))
+
+                  guard let url = URL(string: "\(baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/audio/speech") else {
+                      speakViaAppleNeuralVoice(text: text, targetDuration: targetDuration)
+                      return
+                  }
+
+                  var request = URLRequest(url: url)
+                  request.httpMethod = "POST"
+                  request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                  request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+
+                  let payload: [String: Any] = [
+                      "model": "tts-1",
+                      "input": text,
+                      "voice": "nova",
+                      "response_format": "aac",
+                      "speed": speed
+                  ]
+                  request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+
+                  do {
+                      let (audioData, response) = try await URLSession.shared.data(for: request)
+                      guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                          speakViaAppleNeuralVoice(text: text, targetDuration: targetDuration)
+                          return
+                      }
+                      let player = try AVAudioPlayer(data: audioData)
+                      player.delegate = self
+                      player.prepareToPlay()
+                      player.play()
+                      self.audioPlayer = player
+                  } catch {
+                      speakViaAppleNeuralVoice(text: text, targetDuration: targetDuration)
+                  }
+              }
+
+              /// 自动挑选设备上画质最高的简体中文语音包 (Premium > Enhanced > Default)
+              static func selectBestChineseVoice() -> AVSpeechSynthesisVoice? {
+                  let zhVoices = AVSpeechSynthesisVoice.speechVoices().filter {
+                      $0.language.lowercased().hasPrefix("zh-cn")
+                  }
+                  if let premium = zhVoices.first(where: { $0.quality == .premium }) {
+                      return premium
+                  }
+                  if let enhanced = zhVoices.first(where: { $0.quality == .enhanced }) {
+                      return enhanced
+                  }
+                  return AVSpeechSynthesisVoice(language: "zh-CN")
+              }
+          }
+
+          extension RealtimeChineseDubbingEngine: AVSpeechSynthesizerDelegate, AVAudioPlayerDelegate {
+              nonisolated func speechSynthesizer(
+                  _ synthesizer: AVSpeechSynthesizer,
+                  didFinish utterance: AVSpeechUtterance
+              ) {
+                  Task { @MainActor in
+                      self.isSpeaking = false
+                      self.onVolumeDuckChange?(100)
+                  }
+              }
+
+              nonisolated func speechSynthesizer(
+                  _ synthesizer: AVSpeechSynthesizer,
+                  didCancel utterance: AVSpeechUtterance
+              ) {
+                  Task { @MainActor in
+                      self.isSpeaking = false
+                      self.onVolumeDuckChange?(100)
+                  }
+              }
+
+              nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+                  Task { @MainActor in
+                      self.isSpeaking = false
+                      self.onVolumeDuckChange?(100)
+                  }
+              }
+          }
+          EOF_FILE
+          fi
+          if [ ! -f "YouTubeDubber/Views/ContentView.swift" ]; then
+          cat << 'EOF_FILE' > YouTubeDubber/Views/ContentView.swift
+          import SwiftUI
+
+          struct ContentView: View {
+              @StateObject private var playerController = YouTubePlayerController()
+              @StateObject private var dubbingEngine = RealtimeChineseDubbingEngine()
+
+              @State private var urlInput: String = "https://www.youtube.com/watch?v=aircAruvnKk"
+              @State private var cues: [SubtitleCue] = []
+              @State private var isLoadingCaptions: Bool = false
+              @State private var statusMessage: String = "准备就绪：加载视频后将自动提取字幕并开启实时中文配音"
+              @State private var showSettings: Bool = false
+
+              @AppStorage("openai_api_key") private var apiKey: String = ""
+              @AppStorage("openai_base_url") private var baseURL: String = "https://api.openai.com/v1"
+              @AppStorage("openai_model") private var llmModel: String = "gpt-4o-mini"
+
+              private let transcriptService = TranscriptAndTranslationService()
+
+              var body: some View {
+                  NavigationStack {
+                      VStack(spacing: 0) {
+                          // 1. 顶部 YouTube URL 输入栏
+                          HStack(spacing: 10) {
+                              Image(systemName: "play.rectangle.fill")
+                                  .foregroundStyle(.red)
+                              TextField("粘贴 YouTube 视频链接或 11 位 Video ID", text: $urlInput)
+                                  .textInputAutocapitalization(.never)
+                                  .disableAutocorrection(true)
+                                  .font(.subheadline)
+                                  .submitLabel(.go)
+                                  .onSubmit { loadNewVideo() }
+
+                              Button("加载配音") {
+                                  loadNewVideo()
+                              }
+                              .buttonStyle(.borderedProminent)
+                              .tint(.red)
+                              .controlSize(.small)
+                          }
+                          .padding(.horizontal, 14)
+                          .padding(.vertical, 10)
+                          .background(Color(.secondarySystemBackground))
+
+                          // 2. 16:9 YouTube 原生内嵌播放器
+                          ZStack(alignment: .bottomTrailing) {
+                              YouTubeWebPlayerView(controller: playerController)
+                                  .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                                  .background(Color.black)
+
+                              if dubbingEngine.isSpeaking {
+                                  Label("中文同传配音中", systemImage: "waveform.circle.fill")
+                                      .font(.caption.bold())
+                                      .padding(.horizontal, 10)
+                                      .padding(.vertical, 5)
+                                      .background(.ultraThinMaterial)
+                                      .clipShape(Capsule())
+                                      .padding(10)
+                              }
+                          }
+
+                          // 3. 实时配音状态与快捷控制栏
+                          HStack(spacing: 14) {
+                              Toggle(isOn: $dubbingEngine.isDubbingEnabled) {
+                                  Label("实时中文配音", systemImage: dubbingEngine.isDubbingEnabled ? "speaker.wave.3.fill" : "speaker.slash.fill")
+                                      .font(.subheadline.weight(.semibold))
+                              }
+                              .toggleStyle(.button)
+                              .tint(dubbingEngine.isDubbingEnabled ? .green : .gray)
+                              .onChange(of: dubbingEngine.isDubbingEnabled) { _, enabled in
+                                  if !enabled { dubbingEngine.stopImmediately() }
+                              }
+
+                              Spacer()
+
+                              if isLoadingCaptions {
+                                  ProgressView()
+                                      .controlSize(.small)
+                              }
+
+                              Text(statusMessage)
+                                  .font(.caption)
+                                  .foregroundStyle(.secondary)
+                                  .lineLimit(1)
+                          }
+                          .padding(.horizontal, 14)
+                          .padding(.vertical, 8)
+                          .background(Color(.systemBackground))
+
+                          Divider()
+
+                          // 4. 实时滚动双语时间轴字幕列表
+                          ScrollViewReader { proxy in
+                              List(cues) { cue in
+                                  let isActive = (cue.id == dubbingEngine.activeCueID)
+                                  Button {
+                                      dubbingEngine.stopImmediately()
+                                      playerController.seek(to: cue.startTime)
+                                  } label: {
+                                      VStack(alignment: .leading, spacing: 6) {
+                                          HStack {
+                                              Text(formatTimestamp(cue.startTime))
+                                                  .font(.caption2.monospacedDigit())
+                                                  .padding(.horizontal, 6)
+                                                  .padding(.vertical, 2)
+                                                  .background(isActive ? Color.red.opacity(0.18) : Color.secondary.opacity(0.12))
+                                                  .foregroundStyle(isActive ? .red : .secondary)
+                                                  .clipShape(RoundedRectangle(cornerRadius: 4))
+
+                                              if isActive {
+                                                  Image(systemName: "waveform")
+                                                      .font(.caption2)
+                                                      .foregroundStyle(.red)
+                                              }
+                                              Spacer()
+                                          }
+
+                                          Text(cue.translatedZH ?? "正在翻译中文字幕...")
+                                              .font(.body.weight(isActive ? .semibold : .regular))
+                                              .foregroundStyle(cue.translatedZH == nil ? .secondary : .primary)
+
+                                          Text(cue.originalText)
+                                              .font(.caption)
+                                              .foregroundStyle(.secondary)
+                                      }
+                                      .padding(.vertical, 4)
+                                  }
+                                  .listRowBackground(isActive ? Color.red.opacity(0.08) : Color.clear)
+                                  .id(cue.id)
+                              }
+                              .listStyle(.plain)
+                              .onChange(of: dubbingEngine.activeCueID) { _, newID in
+                                  guard let newID else { return }
+                                  withAnimation(.easeInOut(duration: 0.25)) {
+                                      proxy.scrollTo(newID, anchor: .center)
+                                  }
+                              }
+                          }
+                      }
+                      .navigationTitle("YT 实时中文配音")
+                      .navigationBarTitleDisplayMode(.inline)
+                      .toolbar {
+                          ToolbarItem(placement: .topBarTrailing) {
+                              Button {
+                                  showSettings = true
+                              } label: {
+                                  Image(systemName: "slider.horizontal.3")
+                              }
+                          }
+                      }
+                      .sheet(isPresented: $showSettings) {
+                          SettingsSheetView(
+                              dubbingEngine: dubbingEngine,
+                              apiKey: $apiKey,
+                              baseURL: $baseURL,
+                              llmModel: $llmModel
+                          )
+                      }
+                      .task {
+                          setupCallbacks()
+                          await fetchAndTranslateSubtitles(for: playerController.currentVideoID)
+                      }
+                  }
+              }
+
+              private func setupCallbacks() {
+                  dubbingEngine.bindVolumeDuckHandler { targetVol in
+                      playerController.setOriginalVolume(targetVol)
+                  }
+
+                  playerController.onTimeTick = { currentTime, state in
+                      dubbingEngine.syncWithPlayback(
+                          currentTime: currentTime,
+                          playerState: state,
+                          videoPlaybackRate: playerController.playbackRate,
+                          cues: cues,
+                          apiKey: apiKey,
+                          ttsBaseURL: baseURL
+                      )
+                  }
+
+                  playerController.onStateChange = { state in
+                      if state == .paused || state == .buffering || state == .ended {
+                          dubbingEngine.stopImmediately()
+                      }
+                  }
+              }
+
+              private func loadNewVideo() {
+                  guard let vid = YouTubePlayerController.extractVideoID(from: urlInput) else {
+                      statusMessage = "链接格式无效，请输入有效的 YouTube URL 或 11 位 ID"
+                      return
+                  }
+                  dubbingEngine.stopImmediately()
+                  playerController.loadVideo(id: vid)
+                  Task {
+                      await fetchAndTranslateSubtitles(for: vid)
+                  }
+              }
+
+              private func fetchAndTranslateSubtitles(for videoID: String) async {
+                  isLoadingCaptions = true
+                  statusMessage = "正在提取 YouTube 时间轴字幕..."
+                  do {
+                      let fetched = try await transcriptService.fetchMergedCues(for: videoID)
+                      self.cues = fetched
+                      statusMessage = "已加载 \(fetched.count) 句时间轴，正在流式生成中文配音台词..."
+
+                      // 按 20 句一组分批流式翻译，保证前几句立刻可配音，无需等待整部视频翻译完成
+                      let batchSize = 20
+                      for start in stride(from: 0, to: fetched.count, by: batchSize) {
+                          let end = min(start + batchSize, fetched.count)
+                          let slice = Array(fetched[start..<end])
+                          let translatedMap = try await transcriptService.translateBatchToSpokenChinese(
+                              cues: slice,
+                              apiKey: apiKey,
+                              baseURL: baseURL,
+                              model: llmModel
+                          )
+                          for i in start..<end {
+                              if let zh = translatedMap[cues[i].id] {
+                                  cues[i].translatedZH = zh
+                              }
+                          }
+                          statusMessage = "实时配音就绪 (\(end)/\(fetched.count) 句已就绪)"
+                      }
+                      isLoadingCaptions = false
+                  } catch {
+                      isLoadingCaptions = false
+                      statusMessage = error.localizedDescription
+                  }
+              }
+
+              private func formatTimestamp(_ seconds: TimeInterval) -> String {
+                  let total = max(0, Int(seconds))
+                  let mins = total / 60
+                  let secs = total % 60
+                  return String(format: "%02d:%02d", mins, secs)
+              }
+          }
+          EOF_FILE
+          fi
+          if [ ! -f "YouTubeDubber/Views/SettingsSheetView.swift" ]; then
+          cat << 'EOF_FILE' > YouTubeDubber/Views/SettingsSheetView.swift
+          import SwiftUI
+
+          struct SettingsSheetView: View {
+              @ObservedObject var dubbingEngine: RealtimeChineseDubbingEngine
+              @Binding var apiKey: String
+              @Binding var baseURL: String
+              @Binding var llmModel: String
+              @Environment(\.dismiss) private var dismiss
+
+              var body: some View {
+                  NavigationStack {
+                      Form {
+                          Section("中文语音合成引擎") {
+                              Picker("发音引擎", selection: $dubbingEngine.voiceEngine) {
+                                  ForEach(DubbingVoiceEngine.allCases) { engine in
+                                      Text(engine.rawValue).tag(engine)
+                                  }
+                              }
+
+                              VStack(alignment: .leading) {
+                                  HStack {
+                                      Text("原视频压音比例 (Audio Ducking)")
+                                      Spacer()
+                                      Text("\(Int(dubbingEngine.duckedOriginalVolume))%")
+                                          .foregroundStyle(.secondary)
+                                  }
+                                  Slider(value: $dubbingEngine.duckedOriginalVolume, in: 0...60, step: 2)
+                              }
+
+                              VStack(alignment: .leading) {
+                                  HStack {
+                                      Text("基准中文语速倍率")
+                                      Spacer()
+                                      Text(String(format: "%.2fx", dubbingEngine.baseSpeechRateMultiplier))
+                                          .foregroundStyle(.secondary)
+                                  }
+                                  Slider(value: $dubbingEngine.baseSpeechRateMultiplier, in: 0.9...1.3, step: 0.02)
+                              }
+                          }
+
+                          Section {
+                              SecureField("API Key (选填，留空使用内置免费通道)", text: $apiKey)
+                              TextField("API Base URL", text: $baseURL)
+                                  .textInputAutocapitalization(.never)
+                                  .disableAutocorrection(true)
+                              TextField("翻译模型名称", text: $llmModel)
+                                  .textInputAutocapitalization(.never)
+                                  .disableAutocorrection(true)
+                          } header: {
+                              Text("AI 同传翻译与云端神经 TTS 配置")
+                          } footer: {
+                              Text("提示：iOS 设置 -> 辅助功能 -> 朗读内容 -> 声音 -> 中文（中国大陆）中下载「优化/高质 (Premium)」语音包后，离线原生发音同样极其自然流畅。")
+                          }
+                      }
+                      .navigationTitle("配音与引擎设置")
+                      .navigationBarTitleDisplayMode(.inline)
+                      .toolbar {
+                          ToolbarItem(placement: .confirmationAction) {
+                              Button("完成") { dismiss() }
+                          }
+                      }
+                  }
+              }
+          }
+          EOF_FILE
+          fi
+
+      - name: Verify macOS & Xcode Environment
+        run: |
+          sw_vers
+          xcodebuild -version
+          xcrun simctl list devicetypes
+
+      - name: Install XcodeGen & Generate .xcodeproj
+        run: |
+          if ! command -v xcodegen &> /dev/null; then
+            brew install xcodegen
+          fi
+          xcodegen generate --spec project.yml
+
+      - name: Build for iOS Simulator (Debug Verification)
+        run: |
+          set -o pipefail
+          xcodebuild clean build \
+            -project YouTubeDubber.xcodeproj \
+            -scheme YouTubeDubber \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            -derivedDataPath build/DerivedDataSimulator \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Build Unsigned iOS Device App & Package .ipa
+        run: |
+          set -o pipefail
+          xcodebuild clean build \
+            -project YouTubeDubber.xcodeproj \
+            -scheme YouTubeDubber \
+            -sdk iphoneos \
+            -configuration Release \
+            -derivedDataPath build/DerivedDataDevice \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES
+
+          mkdir -p build/Payload
+          cp -r build/DerivedDataDevice/Build/Products/Release-iphoneos/YouTubeDubber.app build/Payload/
+          cd build
+          zip -qry YouTubeDubber-Unsigned.ipa Payload
+          ls -lh YouTubeDubber-Unsigned.ipa
+
+      - name: Upload Compiled .ipa & Simulator .app Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: YouTubeDubber-iOS-Build
+          path: |
+            build/YouTubeDubber-Unsigned.ipa
+            build/DerivedDataSimulator/Build/Products/Debug-iphonesimulator/YouTubeDubber.app
+          retention-days: 30
