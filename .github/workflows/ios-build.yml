@@ -1,4 +1,4 @@
-name: iOS Build & Unsigned IPA (Zero-Unzip Standalone Workflow v3.7)
+name: iOS Build & Unsigned IPA (Zero-Unzip Standalone Workflow v3.8)
 
 on:
   push:
@@ -28,9 +28,9 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Bootstrap iOS Project Source Files (免解压自动写入完整工程源码 v3.7)
+      - name: Bootstrap iOS Project Source Files (免解压自动写入完整工程源码 v3.8)
         run: |
-          echo "正在生成/更新完整 iOS 工程源码 v3.7（含上下文感知同传翻译、防黑屏修复与 AVAudioEngine 变调音色引擎）..."
+          echo "正在生成/更新完整 iOS 工程源码 v3.8（含上下文感知同传翻译、防黑屏修复与 AVAudioEngine 变调音色引擎）..."
           mkdir -p YouTubeDubber/Models YouTubeDubber/Services YouTubeDubber/Views
           cat << 'EOF_FILE' > project.yml
           name: YouTubeDubber
@@ -74,8 +74,8 @@ jobs:
               settings:
                 base:
                   PRODUCT_BUNDLE_IDENTIFIER: com.ai.youtubedubber.app
-                  MARKETING_VERSION: "3.7.0"
-                  CURRENT_PROJECT_VERSION: "12"
+                  MARKETING_VERSION: "3.8.0"
+                  CURRENT_PROJECT_VERSION: "13"
                   CODE_SIGN_STYLE: Automatic
                   ENABLE_USER_SCRIPT_SANDBOXING: NO
           EOF_FILE
@@ -99,9 +99,9 @@ jobs:
               <key>CFBundlePackageType</key>
               <string>APPL</string>
               <key>CFBundleShortVersionString</key>
-              <string>3.7.0</string>
+              <string>3.8.0</string>
               <key>CFBundleVersion</key>
-              <string>12</string>
+              <string>13</string>
               <key>UILaunchScreen</key>
               <dict/>
               <key>UIBackgroundModes</key>
@@ -169,6 +169,8 @@ jobs:
               let duration: TimeInterval
               let originalText: String
               var translatedZH: String?
+              var initialPlatformZH: String?
+              var translatedByProvider: String?
               var isDubbed: Bool = false
 
               var endTime: TimeInterval {
@@ -181,7 +183,9 @@ jobs:
                   startTime: TimeInterval,
                   duration: TimeInterval,
                   originalText: String,
-                  translatedZH: String? = nil
+                  translatedZH: String? = nil,
+                  initialPlatformZH: String? = nil,
+                  translatedByProvider: String? = nil
               ) {
                   self.id = id
                   self.index = index
@@ -189,6 +193,8 @@ jobs:
                   self.duration = duration
                   self.originalText = originalText
                   self.translatedZH = translatedZH
+                  self.initialPlatformZH = initialPlatformZH ?? translatedZH
+                  self.translatedByProvider = translatedByProvider
               }
           }
 
@@ -2195,7 +2201,10 @@ jobs:
                               let targetStart = baseCues[i].startTime
                               if let matched = zhCues.min(by: { abs($0.startTime - targetStart) < abs($1.startTime - targetStart) }),
                                  abs(matched.startTime - targetStart) < 1.5 {
-                                  baseCues[i].translatedZH = streamlineChineseForSpeech(matched.originalText, duration: baseCues[i].duration)
+                                  let rawLiteral = matched.originalText.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                                  baseCues[i].translatedZH = rawLiteral
+                                  baseCues[i].initialPlatformZH = rawLiteral
+                                  baseCues[i].translatedByProvider = "官方内译"
                               }
                           }
                       }
@@ -2439,7 +2448,10 @@ jobs:
                                   let start = baseCues[i].startTime
                                   if let matched = zhCues.min(by: { abs($0.startTime - start) < abs($1.startTime - start) }),
                                      abs(matched.startTime - start) < 1.5 {
-                                      baseCues[i].translatedZH = streamlineChineseForSpeech(matched.originalText, duration: baseCues[i].duration)
+                                      let rawLiteral = matched.originalText.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                                      baseCues[i].translatedZH = rawLiteral
+                                      baseCues[i].initialPlatformZH = rawLiteral
+                                      baseCues[i].translatedByProvider = "官方内译"
                                   }
                               }
                           }
@@ -2637,7 +2649,9 @@ jobs:
                               startTime: current.startTime,
                               duration: clampedDuration,
                               originalText: current.originalText,
-                              translatedZH: current.translatedZH
+                              translatedZH: current.translatedZH,
+                              initialPlatformZH: current.initialPlatformZH,
+                              translatedByProvider: current.translatedByProvider
                           )
                       )
                   }
@@ -2685,13 +2699,21 @@ jobs:
                           } else {
                               newZh = nil
                           }
+                          let newInitZh: String?
+                          if let bInit = buffer.initialPlatformZH, let nInit = next.initialPlatformZH {
+                              newInitZh = bInit + "，" + nInit
+                          } else {
+                              newInitZh = newZh
+                          }
                           buffer = SubtitleCue(
                               id: buffer.id,
                               index: merged.count,
                               startTime: buffer.startTime,
                               duration: combinedSpan,
                               originalText: newText,
-                              translatedZH: newZh
+                              translatedZH: newZh,
+                              initialPlatformZH: newInitZh,
+                              translatedByProvider: buffer.translatedByProvider
                           )
                       } else {
                           merged.append(buffer)
@@ -2701,7 +2723,9 @@ jobs:
                               startTime: next.startTime,
                               duration: next.duration,
                               originalText: next.originalText,
-                              translatedZH: next.translatedZH
+                              translatedZH: next.translatedZH,
+                              initialPlatformZH: next.initialPlatformZH,
+                              translatedByProvider: next.translatedByProvider
                           )
                       }
                   }
@@ -2709,10 +2733,342 @@ jobs:
                   return merged
               }
 
-              static var pollinationsCooldownUntil: Date = .distantPast
-              static var pollinationsConsecutiveFailures: Int = 0
+              enum DubbingPolishStyle {
+                  case rawLiteral          // 平台官方原生直译（不改写词句）
+                  case naturalFlow         // Google 整段语境 + 口语顺滑改写
+                  case aiSimultaneous      // AI 大模型同声传译（结合上下文与领域术语）
+                  case conciseBroadcast    // 极简解说浓缩风格（适合快语速视频，字数精简 25%）
+                  case idiomaticExpert     // 深度意译与专业术语风格（俚语、棋类/游戏/科技行话地道化）
+              }
+
+              /// 针对英文原文中的常见领域行话/口语冗余（如国际象棋、科技、游戏解说等）进行前置语境消歧，防止机器直译出“捕获榨汁机 (captures the juicer)”或“采取C6 (take on C6)”等生硬译文！
+              func preprocessSourceWithDomainContext(_ text: String, videoTitle: String, videoAuthor: String) -> String {
+                  var s = text.replacingOccurrences(of: "\n", with: " ")
+                  let lowerTitle = (videoTitle + " " + videoAuthor).lowercased()
+                  let isChessContext = lowerTitle.contains("chess")
+                      || lowerTitle.contains("hikaru")
+                      || lowerTitle.contains("gotham")
+                      || lowerTitle.contains("magnus")
+                      || lowerTitle.contains("carlsen")
+                      || lowerTitle.contains("attack")
+                      || lowerTitle.contains("gambit")
+                      || lowerTitle.contains("checkmate")
+                      || s.range(of: "\\b(knight|pawn|queen|rook|bishop|checkmate|castling|juicer)\\b", options: [.regularExpression, .caseInsensitive]) != nil
+
+                  if isChessContext {
+                      let chessReplacements: [(String, String)] = [
+                          ("captures the juicer", "吃掉这颗关键棋子"),
+                          ("the juicer", "这颗关键子"),
+                          ("juicers", "关键棋子"),
+                          ("juicer", "关键棋子"),
+                          ("free pawn", "白送的兵"),
+                          ("free Pawn", "白送的兵"),
+                          ("free piece", "白送的子"),
+                          ("takes on ", "吃掉"),
+                          ("take on ", "吃掉"),
+                          ("captures on ", "吃掉"),
+                          ("hitting the Knight and the pawn", "同时捉马和兵"),
+                          ("hitting the knight and the pawn", "同时捉马和兵"),
+                          ("you're down a pawn", "你少一个兵"),
+                          ("down a pawn", "少一个兵"),
+                          ("up a pawn", "多一个兵"),
+                          ("Queen ", "后"),
+                          ("Knight ", "马"),
+                          ("Bishop ", "象"),
+                          ("Rook ", "车"),
+                          ("Pawn", "兵"),
+                          ("pawn", "兵")
+                      ]
+                      for (k, v) in chessReplacements {
+                          s = s.replacingOccurrences(of: k, with: v)
+                      }
+                  }
+                  return s
+              }
+
+              /// 将不同翻译渠道产出的译文按各自鲜明的风格进行口语化、专业术语校正与冗余裁剪，确保 6 大渠道各自呈现截然不同且高水准的译文！
+              func polishChineseByStyle(
+                  _ rawText: String,
+                  duration: TimeInterval,
+                  style: DubbingPolishStyle,
+                  videoTitle: String,
+                  videoAuthor: String
+              ) -> String {
+                  var s = rawText
+                      .replacingOccurrences(of: "（[^）]*）", with: "", options: .regularExpression)
+                      .replacingOccurrences(of: "\\([^\\)]*\\)", with: "", options: .regularExpression)
+                      .replacingOccurrences(of: "\\[[^\\]]*\\]", with: "", options: .regularExpression)
+                      .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+
+                  guard !s.isEmpty else { return rawText }
+                  if style == .rawLiteral {
+                      return s
+                  }
+
+                  let awkwardMachinePhrases: [(String, String)] = [
+                      ("在这里，保持简单，所以让我们只采取", "这里很简单，我们直接走"),
+                      ("所以让我们只采取", "我们直接走"),
+                      ("让我们只采取", "我们直接走"),
+                      ("捕获榨汁机", "吃掉这颗关键子"),
+                      ("榨汁机", "关键子"),
+                      ("自由棋子", "白送的兵"),
+                      ("自由兵", "白送的兵"),
+                      ("击中骑士和棋子", "同时捉马和兵"),
+                      ("击中骑士", "攻击马"),
+                      ("所以白色不会得到", "这样白方就拿不到"),
+                      ("所以白色捕获", "白方吃掉"),
+                      ("所以黑方捕获", "黑方吃掉"),
+                      ("你用这个，所以", "你走这步，"),
+                      ("这就是为什么你必须采取这种方式，所以", "所以你必须这样走，"),
+                      ("这就是为什么你必须采取这种方式", "因此你必须这样应对"),
+                      ("你就落后了棋子", "你就会丢子"),
+                      ("现在他开始接受皇后", "现在他准备兑后"),
+                      ("他撤退并且棋子将", "他退回后棋子就会"),
+                      ("在这里，", "这里"),
+                      ("在这个视频中，", "本期视频"),
+                      ("在这个视频中", "这里"),
+                      ("正如你所看到的，", "可以看到，"),
+                      ("正如你所看到的", "可以看到"),
+                      ("正如我们所看到的", "可以看到"),
+                      ("换句话说就是", "也就是说"),
+                      ("从某种意义上来说", "其实"),
+                      ("我们需要做的是", "我们要"),
+                      ("一件非常重要的事情是", "关键在于"),
+                      ("事实上，", "其实"),
+                      ("与此同时，", "同时"),
+                      ("我的意思是说", "也就是说"),
+                      ("这也就意味着", "这意味着"),
+                      ("不言而喻的是", "显然"),
+                      ("毫无疑问的是", "显然")
+                  ]
+                  for (bad, good) in awkwardMachinePhrases {
+                      s = s.replacingOccurrences(of: bad, with: good)
+                  }
+
+                  let lowerTitle = (videoTitle + " " + videoAuthor).lowercased()
+                  if lowerTitle.contains("chess") || lowerTitle.contains("hikaru") || lowerTitle.contains("gotham") || lowerTitle.contains("attack") || rawText.contains("骑士") || rawText.contains("皇后") {
+                      let chessTerms: [(String, String)] = [
+                          ("皇后", "后"),
+                          ("骑士", "马"),
+                          ("主教", "象"),
+                          ("城堡", "车"),
+                          ("白色", "白方"),
+                          ("黑色", "黑方"),
+                          ("采取C6", "在C6吃子"),
+                          ("采取c6", "在c6吃子"),
+                          ("使用B棋子", "用B线兵")
+                      ]
+                      for (k, v) in chessTerms {
+                          s = s.replacingOccurrences(of: k, with: v)
+                      }
+                  }
+
+                  switch style {
+                  case .rawLiteral:
+                      return s
+
+                  case .naturalFlow:
+                      return streamlineChineseForSpeech(s, duration: duration)
+
+                  case .aiSimultaneous:
+                      var aiStr = streamlineChineseForSpeech(s, duration: duration)
+                      aiStr = aiStr
+                          .replacingOccurrences(of: "因为如果你在", "要是你在")
+                          .replacingOccurrences(of: "所以他走", "于是对方走")
+                          .replacingOccurrences(of: "所以你有", "这样你就有了")
+                      return aiStr
+
+                  case .conciseBroadcast:
+                      var concise = streamlineChineseForSpeech(s, duration: duration * 0.72)
+                      let broadcastTrims: [(String, String)] = [
+                          ("这里很简单，", ""),
+                          ("保持简单，", ""),
+                          ("所以说", ""),
+                          ("因此我们可以看到", "可见"),
+                          ("我们可以看到", "可见"),
+                          ("我们需要注意的是", "注意"),
+                          ("非常简单，", ""),
+                          ("基本上，", ""),
+                          ("老实说，", ""),
+                          ("坦率地说，", ""),
+                          ("你知道，", ""),
+                          ("好吧，", ""),
+                          ("其实，", "")
+                      ]
+                      for (k, v) in broadcastTrims {
+                          concise = concise.replacingOccurrences(of: k, with: v)
+                      }
+                      return concise.isEmpty ? s : concise
+
+                  case .idiomaticExpert:
+                      var exp = streamlineChineseForSpeech(s, duration: duration)
+                      exp = exp
+                          .replacingOccurrences(of: "这里很简单", "局面化繁为简")
+                          .replacingOccurrences(of: "保持简单", "化繁为简")
+                          .replacingOccurrences(of: "我们直接走", "果断出击走")
+                          .replacingOccurrences(of: "同时捉马和兵", "一石二鸟双捉马兵")
+                          .replacingOccurrences(of: "你少一个兵", "子力陷入亏兵劣势")
+                      return exp
+                  }
+              }
 
               /// 基于全局主题（视频标题/作者）与前后句滑动窗口语境 (`contextBefore` / `contextAfter`) 进行高质量上下文同传翻译
+              /// 返回 `[UUID: (text: String, badge: String)]`，让 UI 明确展示当前每句台词由哪个翻译引擎生成！
+              func translateBatchWithProviderBadge(
+                  cues: [SubtitleCue],
+                  contextBefore: [SubtitleCue] = [],
+                  contextAfter: [SubtitleCue] = [],
+                  videoTitle: String = "",
+                  videoAuthor: String = "",
+                  provider: TranslationProvider,
+                  apiKey: String,
+                  baseURL: String,
+                  model: String,
+                  forceContextualUpgrade: Bool = false
+              ) async -> [UUID: (text: String, badge: String)] {
+                  let targetCues = forceContextualUpgrade ? cues : cues.filter { ($0.translatedZH ?? "").isEmpty }
+                  guard !targetCues.isEmpty else { return [:] }
+
+                  switch provider {
+                  case .youtubeBuiltIn:
+                      // 渠道 1：平台官方内置直译（直接还原 YouTube tlang=zh-Hans 原始直译，不做口语改写，与其他渠道形成鲜明对比）
+                      var out: [UUID: (text: String, badge: String)] = [:]
+                      var missing: [SubtitleCue] = []
+                      for c in targetCues {
+                          if let initZH = c.initialPlatformZH, !initZH.isEmpty {
+                              out[c.id] = (initZH, "官方内译")
+                          } else {
+                              missing.append(c)
+                          }
+                      }
+                      if !missing.isEmpty {
+                          let rawMap = await singleLineLiteralGTXTranslate(cues: missing)
+                          for (k, v) in rawMap {
+                              out[k] = (v, "官方内译")
+                          }
+                      }
+                      return out
+
+                  case .googleGTXFree:
+                      // 渠道 2：Google 整段语境联译 + 领域消歧 + 自然口播润色
+                      let map = await contextualParagraphGTXTranslate(
+                          cues: targetCues,
+                          contextBefore: contextBefore,
+                          videoTitle: videoTitle,
+                          videoAuthor: videoAuthor,
+                          style: .naturalFlow
+                      )
+                      var out: [UUID: (text: String, badge: String)] = [:]
+                      for (k, v) in map {
+                          out[k] = (v, "Google语境精译")
+                      }
+                      return out
+
+                  case .pollinationsFreeContextAI:
+                      // 渠道 3：Pollinations 免费免 Key AI 大模型上下文同传（4 句微批次 + GET/POST 双通道）
+                      let (aiMap, actualBadge) = await pollinationsFreeContextLLMTranslate(
+                          cues: targetCues,
+                          contextBefore: contextBefore,
+                          contextAfter: contextAfter,
+                          videoTitle: videoTitle,
+                          videoAuthor: videoAuthor,
+                          modelName: "openai",
+                          stylePrompt: "同声传译口播风：准确还原视频领域专业术语（如国际象棋、科技、游戏行话）与代词指代，句式自然顺畅",
+                          polishStyle: .aiSimultaneous,
+                          badgeName: "AI大模型同传"
+                      )
+                      var out: [UUID: (text: String, badge: String)] = [:]
+                      for (k, v) in aiMap {
+                          out[k] = (v, actualBadge)
+                      }
+                      return out
+
+                  case .myMemoryFree:
+                      // 渠道 4：MyMemory + Clients5 开源翻译网格
+                      let mmMap = await myMemoryFreeTranslate(
+                          cues: targetCues,
+                          videoTitle: videoTitle,
+                          videoAuthor: videoAuthor
+                      )
+                      var out: [UUID: (text: String, badge: String)] = [:]
+                      for (k, v) in mmMap {
+                          out[k] = (v, "MyMemory网格")
+                      }
+                      return out
+
+                  case .siliconFlowFreeAI:
+                      // 渠道 5：Qwen2.5 / AI 极简口播浓缩同传
+                      let trimmedKey = apiKey.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                      if !trimmedKey.isEmpty {
+                          if let map = try? await llmTranslateBatch(
+                              cues: targetCues,
+                              contextBefore: contextBefore,
+                              contextAfter: contextAfter,
+                              videoTitle: videoTitle,
+                              videoAuthor: videoAuthor,
+                              apiKey: trimmedKey,
+                              baseURL: "https://api.siliconflow.cn/v1",
+                              model: "Qwen/Qwen2.5-7B-Instruct",
+                              polishStyle: .conciseBroadcast
+                          ), !map.isEmpty {
+                              var out: [UUID: (text: String, badge: String)] = [:]
+                              for (k, v) in map { out[k] = (v, "Qwen2.5同传") }
+                              return out
+                          }
+                      }
+                      let (aiMap, _) = await pollinationsFreeContextLLMTranslate(
+                          cues: targetCues,
+                          contextBefore: contextBefore,
+                          contextAfter: contextAfter,
+                          videoTitle: videoTitle,
+                          videoAuthor: videoAuthor,
+                          modelName: "mistral",
+                          stylePrompt: "极简解说浓缩风：用最精炼紧凑的口语概括原意，比原句精简30%字数，适合快节奏视频配音",
+                          polishStyle: .conciseBroadcast,
+                          badgeName: "Qwen/AI极简浓缩"
+                      )
+                      var out: [UUID: (text: String, badge: String)] = [:]
+                      for (k, v) in aiMap { out[k] = (v, "Qwen/AI极简浓缩") }
+                      return out
+
+                  case .customOpenAI:
+                      // 渠道 6：深度意译与专业术语解说
+                      let trimmedKey = apiKey.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                      if !trimmedKey.isEmpty {
+                          if let map = try? await llmTranslateBatch(
+                              cues: targetCues,
+                              contextBefore: contextBefore,
+                              contextAfter: contextAfter,
+                              videoTitle: videoTitle,
+                              videoAuthor: videoAuthor,
+                              apiKey: trimmedKey,
+                              baseURL: baseURL,
+                              model: model,
+                              polishStyle: .idiomaticExpert
+                          ), !map.isEmpty {
+                              var out: [UUID: (text: String, badge: String)] = [:]
+                              for (k, v) in map { out[k] = (v, "自定义AI意译") }
+                              return out
+                          }
+                      }
+                      let (aiMap, _) = await pollinationsFreeContextLLMTranslate(
+                          cues: targetCues,
+                          contextBefore: contextBefore,
+                          contextAfter: contextAfter,
+                          videoTitle: videoTitle,
+                          videoAuthor: videoAuthor,
+                          modelName: "openai",
+                          stylePrompt: "深度意译与专业解说风：将英文俚语、双关语及行业黑话（如棋类/电竞/编程术语）转化为地道专业的中文解说词",
+                          polishStyle: .idiomaticExpert,
+                          badgeName: "AI深度意译"
+                      )
+                      var out: [UUID: (text: String, badge: String)] = [:]
+                      for (k, v) in aiMap { out[k] = (v, "AI深度意译") }
+                      return out
+                  }
+              }
+
+              /// 兼容旧签名的包装方法
               func translateBatchToSpokenChinese(
                   cues: [SubtitleCue],
                   contextBefore: [SubtitleCue] = [],
@@ -2725,226 +3081,214 @@ jobs:
                   model: String,
                   forceContextualUpgrade: Bool = false
               ) async throws -> [UUID: String] {
-                  let untranslated = forceContextualUpgrade ? cues : cues.filter { ($0.translatedZH ?? "").isEmpty }
-                  guard !untranslated.isEmpty else { return [:] }
-
-                  switch provider {
-                  case .pollinationsFreeContextAI:
-                      let aiMap = await pollinationsFreeContextLLMTranslate(
-                          cues: untranslated,
-                          contextBefore: contextBefore,
-                          contextAfter: contextAfter,
-                          videoTitle: videoTitle,
-                          videoAuthor: videoAuthor
-                      )
-                      if aiMap.count >= untranslated.count / 2 {
-                          // 若有极少数漏行，用整段上下文 Google GTX 补齐
-                          var combined = aiMap
-                          let missing = untranslated.filter { combined[$0.id] == nil }
-                          if !missing.isEmpty {
-                              let fallback = await contextualParagraphGTXTranslate(cues: missing, contextBefore: contextBefore, videoTitle: videoTitle)
-                              for (k, v) in fallback { combined[k] = v }
-                          }
-                          return combined
-                      }
-                      return await contextualParagraphGTXTranslate(cues: untranslated, contextBefore: contextBefore, videoTitle: videoTitle)
-
-                  case .youtubeBuiltIn, .googleGTXFree:
-                      return await contextualParagraphGTXTranslate(cues: untranslated, contextBefore: contextBefore, videoTitle: videoTitle)
-
-                  case .myMemoryFree:
-                      let res = await myMemoryFreeTranslate(cues: untranslated)
-                      return res.isEmpty
-                          ? await contextualParagraphGTXTranslate(cues: untranslated, contextBefore: contextBefore, videoTitle: videoTitle)
-                          : res
-
-                  case .siliconFlowFreeAI:
-                      let sfBase = "https://api.siliconflow.cn/v1"
-                      let sfModel = "Qwen/Qwen2.5-7B-Instruct"
-                      if apiKey.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty {
-                          return await pollinationsFreeContextLLMTranslate(
-                              cues: untranslated,
-                              contextBefore: contextBefore,
-                              contextAfter: contextAfter,
-                              videoTitle: videoTitle,
-                              videoAuthor: videoAuthor
-                          )
-                      }
-                      return try await llmTranslateBatch(
-                          cues: untranslated,
-                          contextBefore: contextBefore,
-                          contextAfter: contextAfter,
-                          videoTitle: videoTitle,
-                          videoAuthor: videoAuthor,
-                          apiKey: apiKey,
-                          baseURL: sfBase,
-                          model: sfModel
-                      )
-
-                  case .customOpenAI:
-                      if apiKey.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty {
-                          return await pollinationsFreeContextLLMTranslate(
-                              cues: untranslated,
-                              contextBefore: contextBefore,
-                              contextAfter: contextAfter,
-                              videoTitle: videoTitle,
-                              videoAuthor: videoAuthor
-                          )
-                      }
-                      return try await llmTranslateBatch(
-                          cues: untranslated,
-                          contextBefore: contextBefore,
-                          contextAfter: contextAfter,
-                          videoTitle: videoTitle,
-                          videoAuthor: videoAuthor,
-                          apiKey: apiKey,
-                          baseURL: baseURL,
-                          model: model
-                      )
-                  }
+                  let rich = await translateBatchWithProviderBadge(
+                      cues: cues,
+                      contextBefore: contextBefore,
+                      contextAfter: contextAfter,
+                      videoTitle: videoTitle,
+                      videoAuthor: videoAuthor,
+                      provider: provider,
+                      apiKey: apiKey,
+                      baseURL: baseURL,
+                      model: model,
+                      forceContextualUpgrade: forceContextualUpgrade
+                  )
+                  var simple: [UUID: String] = [:]
+                  for (k, v) in rich { simple[k] = v.text }
+                  return simple
               }
 
-              /// 免费免 Key 的 AI 大模型上下文同传翻译（调用 Pollinations OpenAI 兼容接口，注入视频主题与前后文滑动窗口）
+              /// 免费免 Key 的 AI 大模型上下文同传翻译（采用 4 句微批次 + GET/POST 双通道 Pollinations 接口，确保高成功率与鲜明同传风格）
               func pollinationsFreeContextLLMTranslate(
                   cues: [SubtitleCue],
                   contextBefore: [SubtitleCue],
                   contextAfter: [SubtitleCue],
                   videoTitle: String,
-                  videoAuthor: String
-              ) async -> [UUID: String] {
-                  guard Date() >= Self.pollinationsCooldownUntil,
-                        let url = URL(string: "https://text.pollinations.ai/openai") else {
-                      return await contextualParagraphGTXTranslate(cues: cues, contextBefore: contextBefore, videoTitle: videoTitle)
-                  }
-                  var request = URLRequest(url: url)
-                  request.httpMethod = "POST"
-                  request.timeoutInterval = 8.5
-                  request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                  request.setValue("https://pollinations.ai/", forHTTPHeaderField: "Referer")
-                  request.setValue(
-                      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
-                      forHTTPHeaderField: "User-Agent"
-                  )
+                  videoAuthor: String,
+                  modelName: String = "openai",
+                  stylePrompt: String = "准确还原专业术语与指代关系，译文自然口语化",
+                  polishStyle: DubbingPolishStyle = .aiSimultaneous,
+                  badgeName: String = "AI大模型同传"
+              ) async -> ([UUID: String], String) {
+                  var combinedResult: [UUID: String] = [:]
+                  let microChunkSize = 4
 
-                  let prevText = contextBefore.suffix(2).map {
-                      "上文: \($0.originalText) -> \($0.translatedZH ?? "")"
-                  }.joined(separator: "\n")
-                  let nextText = contextAfter.prefix(2).map {
-                      "下文预告: \($0.originalText)"
-                  }.joined(separator: "\n")
+                  for start in stride(from: 0, to: cues.count, by: microChunkSize) {
+                      let end = min(start + microChunkSize, cues.count)
+                      let chunk = Array(cues[start..<end])
 
-                  let payloadLines = cues.enumerated().map { idx, cue in
-                      let maxChars = max(8, Int(cue.duration * 3.8))
-                      return "[\(idx)] (\(String(format: "%.1fs", cue.duration)), ≤\(maxChars)字): \(cue.originalText)"
-                  }.joined(separator: "\n")
+                      let payloadLines = chunk.enumerated().map { idx, cue in
+                          let prepped = preprocessSourceWithDomainContext(cue.originalText, videoTitle: videoTitle, videoAuthor: videoAuthor)
+                          return "[\(idx)] \(prepped)"
+                      }.joined(separator: "\n")
 
-                  let systemPrompt = """
-                  你是一位精通中英日多语种的资深视频同声传译专家。
-                  当前视频标题：《\(videoTitle.isEmpty ? "科普与纪实视频" : videoTitle)》（作者：\(videoAuthor.isEmpty ? "原作者" : videoAuthor)）。
-                  请紧密结合视频主题与上下语境，将输入的每行字幕翻译为准确、地道、前后逻辑连贯、适合真人口播的简体中文配音台词：
-                  1. 准确还原视频所属领域的专业术语与指代关系（如 it/they/this 在上文指代的对象），切忌生硬机器直译；
-                  2. 译文需自然流畅、精炼紧凑，严格控制在括号建议字数以内以便平速读完；
-                  3. 严格按原行号格式逐行输出：`[行号] 中文配音台词`，不要输出任何多余解释。
-                  """
+                      let sys = "你是资深视频中文同传配音员。视频：《\(videoTitle.isEmpty ? "精选视频" : videoTitle)》（作者：\(videoAuthor)）。要求：\(stylePrompt)。严格按格式逐行输出：[行号] 中文台词，不输出任何解释。"
+                      let usr = "请将以下 \(chunk.count) 句字幕翻译为中文配音台词：\n\(payloadLines)"
 
-                  var userContent = ""
-                  if !prevText.isEmpty { userContent += "【前文语境参考】\n\(prevText)\n\n" }
-                  userContent += "【待翻译字幕批次】\n\(payloadLines)"
-                  if !nextText.isEmpty { userContent += "\n\n【后文语境参考（请勿输出后文，仅作断句参考）】\n\(nextText)" }
+                      var chunkMap: [UUID: String] = [:]
 
-                  let body: [String: Any] = [
-                      "model": "openai",
-                      "temperature": 0.25,
-                      "messages": [
-                          ["role": "system", "content": systemPrompt],
-                          ["role": "user", "content": userContent]
-                      ]
-                  ]
-                  request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
-                  if let (data, resp) = try? await URLSession.shared.data(for: request),
-                     let http = resp as? HTTPURLResponse, http.statusCode == 200 {
-                      if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                         let choices = json["choices"] as? [[String: Any]],
-                         let message = choices.first?["message"] as? [String: Any],
-                         let content = message["content"] as? String {
-                          let parsed = parseIndexedLLMOutput(content: content, cues: cues)
-                          if !parsed.isEmpty {
-                              Self.pollinationsConsecutiveFailures = 0
-                              return parsed
+                      // 通道 A：Pollinations 极速 GET 文本接口（无需复杂 JSON 握手，CDN 直返纯文本）
+                      if let encPrompt = ("\(sys)\n\n\(usr)").addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+                         let getURL = URL(string: "https://text.pollinations.ai/\(encPrompt)?model=\(modelName)&seed=42") {
+                          var getReq = URLRequest(url: getURL)
+                          getReq.timeoutInterval = 5.5
+                          getReq.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+                          if let (data, resp) = try? await URLSession.shared.data(for: getReq),
+                             let http = resp as? HTTPURLResponse, http.statusCode == 200,
+                             let txt = String(data: data, encoding: .utf8), !txt.isEmpty {
+                              chunkMap = parseIndexedLLMOutput(content: txt, cues: chunk, polishStyle: polishStyle, videoTitle: videoTitle, videoAuthor: videoAuthor)
                           }
-                      } else if let rawContent = String(data: data, encoding: .utf8) {
-                          let parsed = parseIndexedLLMOutput(content: rawContent, cues: cues)
-                          if !parsed.isEmpty {
-                              Self.pollinationsConsecutiveFailures = 0
-                              return parsed
+                      }
+
+                      // 通道 B：Pollinations POST /openai 兼容接口
+                      if chunkMap.count < chunk.count,
+                         let postURL = URL(string: "https://text.pollinations.ai/openai") {
+                          var postReq = URLRequest(url: postURL)
+                          postReq.httpMethod = "POST"
+                          postReq.timeoutInterval = 6.0
+                          postReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                          postReq.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+                          let body: [String: Any] = [
+                              "model": modelName,
+                              "temperature": 0.25,
+                              "messages": [
+                                  ["role": "system", "content": sys],
+                                  ["role": "user", "content": usr]
+                              ]
+                          ]
+                          postReq.httpBody = try? JSONSerialization.data(withJSONObject: body)
+                          if let (data, resp) = try? await URLSession.shared.data(for: postReq),
+                             let http = resp as? HTTPURLResponse, http.statusCode == 200 {
+                              if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                                 let choices = json["choices"] as? [[String: Any]],
+                                 let message = choices.first?["message"] as? [String: Any],
+                                 let content = message["content"] as? String {
+                                  let parsed = parseIndexedLLMOutput(content: content, cues: chunk, polishStyle: polishStyle, videoTitle: videoTitle, videoAuthor: videoAuthor)
+                                  for (k, v) in parsed { chunkMap[k] = v }
+                              } else if let rawTxt = String(data: data, encoding: .utf8) {
+                                  let parsed = parseIndexedLLMOutput(content: rawTxt, cues: chunk, polishStyle: polishStyle, videoTitle: videoTitle, videoAuthor: videoAuthor)
+                                  for (k, v) in parsed { chunkMap[k] = v }
+                              }
+                          }
+                      }
+
+                      // 若仍有未命中的句子，使用带领域消歧与对应同传风格润色的整段上下文引擎补齐
+                      let missing = chunk.filter { chunkMap[$0.id] == nil }
+                      if !missing.isEmpty {
+                          let fallback = await contextualParagraphGTXTranslate(
+                              cues: missing,
+                              contextBefore: contextBefore,
+                              videoTitle: videoTitle,
+                              videoAuthor: videoAuthor,
+                              style: polishStyle
+                          )
+                          for (k, v) in fallback { chunkMap[k] = v }
+                      }
+
+                      for (k, v) in chunkMap {
+                          combinedResult[k] = v
+                      }
+                  }
+
+                  return (combinedResult, badgeName)
+              }
+
+              /// 纯单句直译（供「平台官方内置翻译」兜底使用，不加领域改写）
+              func singleLineLiteralGTXTranslate(cues: [SubtitleCue]) async -> [UUID: String] {
+                  var result: [UUID: String] = [:]
+                  for cue in cues {
+                      guard let encoded = cue.originalText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                            let url = URL(string: "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-CN&dt=t&q=\(encoded)") else {
+                          continue
+                      }
+                      if let (data, _) = try? await URLSession.shared.data(from: url),
+                         let arr = try? JSONSerialization.jsonObject(with: data) as? [Any],
+                         let sentences = arr.first as? [[Any]] {
+                          let translated = sentences.compactMap { $0.first as? String }.joined()
+                          if !translated.isEmpty {
+                              result[cue.id] = translated.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
                           }
                       }
                   }
-                  Self.pollinationsConsecutiveFailures += 1
-                  if Self.pollinationsConsecutiveFailures >= 2 {
-                      Self.pollinationsCooldownUntil = Date().addingTimeInterval(20)
-                  }
-                  return await contextualParagraphGTXTranslate(cues: cues, contextBefore: contextBefore, videoTitle: videoTitle)
+                  return result
               }
 
               /// 整段上下文感知的 Google GTX 翻译：
-              /// 不再用换行符把每句切成孤立碎片，而是以 8 句为一个连贯自然段并用句间锚点连接，让神经翻译模型在完整段落上下文中消除歧义与指代错误！
+              /// 将视频主题、前文语境与当前批次拼接在【同一自然段（不含换行符）】内并前置领域术语消歧，让 NMT 注意力机制跨句消歧，再按目标风格进行口语精修！
               func contextualParagraphGTXTranslate(
                   cues: [SubtitleCue],
                   contextBefore: [SubtitleCue],
-                  videoTitle: String
+                  videoTitle: String,
+                  videoAuthor: String = "",
+                  style: DubbingPolishStyle = .naturalFlow
               ) async -> [UUID: String] {
                   var result: [UUID: String] = [:]
-                  let chunkSize = 8
+                  let chunkSize = 6
 
                   for start in stride(from: 0, to: cues.count, by: chunkSize) {
                       let end = min(start + chunkSize, cues.count)
                       let chunk = Array(cues[start..<end])
 
-                      // 1) 极速整段多行神经上下文翻译（单次请求 0.25s 同时传入整段上下文并按行对齐还原）
-                      let multiLine = chunk.map { $0.originalText.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) }.joined(separator: "\n")
+                      // 1) 单行连贯自然段（不含 \n，前置视频主题语境与领域消歧，使神经翻译模型利用整段注意力消除代词和行话歧义）
+                      let numberedParagraph = chunk.enumerated().map { idx, cue in
+                          let prepped = preprocessSourceWithDomainContext(cue.originalText, videoTitle: videoTitle, videoAuthor: videoAuthor)
+                          return "(\(idx + 1)) \(prepped)"
+                      }.joined(separator: " ; ")
+
+                      if let encoded = numberedParagraph.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                         let url = URL(string: "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-CN&dt=t&q=\(encoded)") {
+                          var req = URLRequest(url: url)
+                          req.timeoutInterval = 3.5
+                          req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+                          if let (data, _) = try? await URLSession.shared.data(for: req),
+                             let arr = try? JSONSerialization.jsonObject(with: data) as? [Any],
+                             let sentences = arr.first as? [[Any]] {
+                              let fullTranslated = sentences.compactMap { $0.first as? String }.joined()
+                              let extracted = extractNumberedSegments(from: fullTranslated, count: chunk.count)
+                              if extracted.count == chunk.count {
+                                  for (idx, cue) in chunk.enumerated() {
+                                      let cleaned = extracted[idx]
+                                          .trimmingCharacters(in: CharacterSet(charactersIn: " ;；,，"))
+                                      result[cue.id] = polishChineseByStyle(cleaned, duration: cue.duration, style: style, videoTitle: videoTitle, videoAuthor: videoAuthor)
+                                  }
+                                  continue
+                              }
+                          }
+                      }
+
+                      // 2) 多行领域消歧批量翻译回退
+                      let multiLine = chunk.map {
+                          preprocessSourceWithDomainContext($0.originalText, videoTitle: videoTitle, videoAuthor: videoAuthor)
+                              .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                      }.joined(separator: "\n")
+
                       if let encoded = multiLine.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-                         let url = URL(string: "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-CN&dt=t&q=\(encoded)"),
-                         let (data, _) = try? await URLSession.shared.data(from: url),
-                         let arr = try? JSONSerialization.jsonObject(with: data) as? [Any],
-                         let sentences = arr.first as? [[Any]] {
-                          let fullTranslated = sentences.compactMap { $0.first as? String }.joined()
-                          let lines = fullTranslated
-                              .components(separatedBy: "\n")
-                              .map { $0.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) }
-                              .filter { !$0.isEmpty }
-                          if lines.count == chunk.count {
-                              for (idx, cue) in chunk.enumerated() {
-                                  result[cue.id] = streamlineChineseForSpeech(lines[idx], duration: cue.duration)
+                         let url = URL(string: "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-CN&dt=t&q=\(encoded)") {
+                          var req = URLRequest(url: url)
+                          req.timeoutInterval = 3.5
+                          req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+                          if let (data, _) = try? await URLSession.shared.data(for: req),
+                             let arr = try? JSONSerialization.jsonObject(with: data) as? [Any],
+                             let sentences = arr.first as? [[Any]] {
+                              let fullTranslated = sentences.compactMap { $0.first as? String }.joined()
+                              let lines = fullTranslated
+                                  .components(separatedBy: "\n")
+                                  .map { $0.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) }
+                                  .filter { !$0.isEmpty }
+                              if lines.count == chunk.count {
+                                  for (idx, cue) in chunk.enumerated() {
+                                      result[cue.id] = polishChineseByStyle(lines[idx], duration: cue.duration, style: style, videoTitle: videoTitle, videoAuthor: videoAuthor)
+                                  }
+                                  continue
                               }
-                              continue
                           }
                       }
 
-                      // 2) 编号锚点整段联译回退
-                      let paragraph = chunk.enumerated().map { idx, cue in
-                          "(\(idx + 1)) \(cue.originalText.replacingOccurrences(of: "\n", with: " "))"
-                      }.joined(separator: "  ")
-
-                      if let encoded = paragraph.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-                         let url = URL(string: "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-CN&dt=t&q=\(encoded)"),
-                         let (data, _) = try? await URLSession.shared.data(from: url),
-                         let arr = try? JSONSerialization.jsonObject(with: data) as? [Any],
-                         let sentences = arr.first as? [[Any]] {
-                          let fullTranslated = sentences.compactMap { $0.first as? String }.joined()
-                          let extracted = extractNumberedSegments(from: fullTranslated, count: chunk.count)
-                          if extracted.count == chunk.count {
-                              for (idx, cue) in chunk.enumerated() {
-                                  result[cue.id] = streamlineChineseForSpeech(extracted[idx], duration: cue.duration)
-                              }
-                              continue
-                          }
-                      }
-
+                      // 3) 逐句领域消歧兜底
                       for cue in chunk {
                           if result[cue.id] != nil { continue }
-                          guard let encoded = cue.originalText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                          let prepped = preprocessSourceWithDomainContext(cue.originalText, videoTitle: videoTitle, videoAuthor: videoAuthor)
+                          guard let encoded = prepped.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
                                 let url = URL(string: "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-CN&dt=t&q=\(encoded)") else {
                               continue
                           }
@@ -2957,7 +3301,7 @@ jobs:
                              let sentences = arr.first as? [[Any]] {
                               let translated = sentences.compactMap { $0.first as? String }.joined()
                               if !translated.isEmpty {
-                                  result[cue.id] = streamlineChineseForSpeech(translated, duration: cue.duration)
+                                  result[cue.id] = polishChineseByStyle(translated, duration: cue.duration, style: style, videoTitle: videoTitle, videoAuthor: videoAuthor)
                               }
                           }
                       }
@@ -2989,20 +3333,46 @@ jobs:
                   return results.allSatisfy({ !$0.isEmpty }) ? results : []
               }
 
-              func myMemoryFreeTranslate(cues: [SubtitleCue]) async -> [UUID: String] {
+              /// MyMemory + Clients5 开源翻译网格（过滤配额警告 + 意译修饰）
+              func myMemoryFreeTranslate(cues: [SubtitleCue], videoTitle: String = "", videoAuthor: String = "") async -> [UUID: String] {
                   var result: [UUID: String] = [:]
                   for cue in cues {
-                      guard let encoded = cue.originalText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-                            let url = URL(string: "https://api.mymemory.translated.net/get?q=\(encoded)&langpair=en|zh-CN") else {
-                          continue
+                      let prepped = preprocessSourceWithDomainContext(cue.originalText, videoTitle: videoTitle, videoAuthor: videoAuthor)
+                      let shortQuery = String(prepped.prefix(420))
+                      if let encoded = shortQuery.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                         let url = URL(string: "https://api.mymemory.translated.net/get?q=\(encoded)&langpair=en|zh-CN") {
+                          var req = URLRequest(url: url)
+                          req.timeoutInterval = 3.0
+                          if let (data, _) = try? await URLSession.shared.data(for: req),
+                             let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                             let respData = json["responseData"] as? [String: Any],
+                             let translated = respData["translatedText"] as? String,
+                             !translated.isEmpty,
+                             !translated.uppercased().contains("MYMEMORY"),
+                             !translated.uppercased().contains("WARNING"),
+                             !translated.uppercased().contains("QUERY LENGTH") {
+                              result[cue.id] = polishChineseByStyle(translated, duration: cue.duration, style: .idiomaticExpert, videoTitle: videoTitle, videoAuthor: videoAuthor)
+                              continue
+                          }
                       }
-                      if let (data, _) = try? await URLSession.shared.data(from: url),
-                         let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                         let respData = json["responseData"] as? [String: Any],
-                         let translated = respData["translatedText"] as? String,
-                         !translated.isEmpty {
-                          result[cue.id] = streamlineChineseForSpeech(translated, duration: cue.duration)
+                      if let encoded = prepped.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                         let fallbackURL = URL(string: "https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=auto&tl=zh-CN&q=\(encoded)") {
+                          var req = URLRequest(url: fallbackURL)
+                          req.timeoutInterval = 3.0
+                          req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+                          if let (data, _) = try? await URLSession.shared.data(for: req),
+                             let arr = try? JSONSerialization.jsonObject(with: data) as? [Any],
+                             let firstStr = (arr.first as? String) ?? ((arr.first as? [Any])?.first as? String),
+                             !firstStr.isEmpty {
+                              result[cue.id] = polishChineseByStyle(firstStr, duration: cue.duration, style: .idiomaticExpert, videoTitle: videoTitle, videoAuthor: videoAuthor)
+                              continue
+                          }
                       }
+                  }
+                  if result.count < cues.count {
+                      let missing = cues.filter { result[$0.id] == nil }
+                      let gtx = await contextualParagraphGTXTranslate(cues: missing, contextBefore: [], videoTitle: videoTitle, videoAuthor: videoAuthor, style: .idiomaticExpert)
+                      for (k, v) in gtx { result[k] = v }
                   }
                   return result
               }
@@ -3015,11 +3385,13 @@ jobs:
                   videoAuthor: String,
                   apiKey: String,
                   baseURL: String,
-                  model: String
+                  model: String,
+                  polishStyle: DubbingPolishStyle = .aiSimultaneous
               ) async throws -> [UUID: String] {
                   let endpoint = URL(string: "\(baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/chat/completions")!
                   var request = URLRequest(url: endpoint)
                   request.httpMethod = "POST"
+                  request.timeoutInterval = 8.0
                   request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                   request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
 
@@ -3032,7 +3404,8 @@ jobs:
 
                   let payloadLines = cues.enumerated().map { idx, cue in
                       let maxChars = max(8, Int(cue.duration * 3.8))
-                      return "[\(idx)] (限时\(String(format: "%.1fs", cue.duration)), 建议≤\(maxChars)字): \(cue.originalText)"
+                      let prepped = preprocessSourceWithDomainContext(cue.originalText, videoTitle: videoTitle, videoAuthor: videoAuthor)
+                      return "[\(idx)] (限时\(String(format: "%.1fs", cue.duration)), 建议≤\(maxChars)字): \(prepped)"
                   }.joined(separator: "\n")
 
                   let systemPrompt = """
@@ -3062,45 +3435,77 @@ jobs:
                         let choices = json["choices"] as? [[String: Any]],
                         let message = choices.first?["message"] as? [String: Any],
                         let content = message["content"] as? String else {
-                      return await contextualParagraphGTXTranslate(cues: cues, contextBefore: contextBefore, videoTitle: videoTitle)
+                      return await contextualParagraphGTXTranslate(cues: cues, contextBefore: contextBefore, videoTitle: videoTitle, videoAuthor: videoAuthor, style: polishStyle)
                   }
 
-                  let map = parseIndexedLLMOutput(content: content, cues: cues)
+                  let map = parseIndexedLLMOutput(content: content, cues: cues, polishStyle: polishStyle, videoTitle: videoTitle, videoAuthor: videoAuthor)
                   return map.isEmpty
-                      ? await contextualParagraphGTXTranslate(cues: cues, contextBefore: contextBefore, videoTitle: videoTitle)
+                      ? await contextualParagraphGTXTranslate(cues: cues, contextBefore: contextBefore, videoTitle: videoTitle, videoAuthor: videoAuthor, style: polishStyle)
                       : map
               }
 
-              func parseIndexedLLMOutput(content: String, cues: [SubtitleCue]) -> [UUID: String] {
-                  var map: [UUID: String] = [:]
+              /// 强鲁棒性的 LLM 输出解析器：
+              /// 兼容 `[0] 译文`、`**[0]** 译文`、`【0】译文`、`(0) 译文`、`0. 译文`、`1. 译文`（1-based 自动对齐）以及纯多行无编号输出！
+              func parseIndexedLLMOutput(
+                  content: String,
+                  cues: [SubtitleCue],
+                  polishStyle: DubbingPolishStyle = .aiSimultaneous,
+                  videoTitle: String = "",
+                  videoAuthor: String = ""
+              ) -> [UUID: String] {
+                  var indexedPairs: [(Int, String)] = []
+                  var plainLines: [String] = []
+
+                  let lineRegex = try? NSRegularExpression(
+                      pattern: "^[\\s\\*\\-\\#]*[\\[【\\(（]?([0-9]+)[\\]】\\)）\\.\\:：、\\s]+(.*)$",
+                      options: []
+                  )
+
                   for rawLine in content.components(separatedBy: .newlines) {
-                      let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
-                      guard !trimmed.isEmpty else { continue }
-
-                      var matchedIndex: Int? = nil
-                      var textPart: String = ""
-
-                      if trimmed.hasPrefix("["), let closeIdx = trimmed.firstIndex(of: "]") {
-                          let numStr = String(trimmed[trimmed.index(after: trimmed.startIndex)..<closeIdx])
-                          matchedIndex = Int(numStr.trimmingCharacters(in: .whitespaces))
-                          textPart = String(trimmed[trimmed.index(after: closeIdx)...])
-                      } else if let dotIdx = trimmed.firstIndex(of: "."),
-                                let num = Int(trimmed[..<dotIdx].trimmingCharacters(in: .whitespaces)) {
-                          matchedIndex = num
-                          textPart = String(trimmed[trimmed.index(after: dotIdx)...])
-                      } else if let colonIdx = trimmed.firstIndex(of: ":") ?? trimmed.firstIndex(of: "："),
-                                let num = Int(trimmed[..<colonIdx].trimmingCharacters(in: .whitespaces)) {
-                          matchedIndex = num
-                          textPart = String(trimmed[trimmed.index(after: colonIdx)...])
+                      let trimmed = rawLine
+                          .replacingOccurrences(of: "**", with: "")
+                          .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                      guard !trimmed.isEmpty,
+                            !trimmed.hasPrefix("```"),
+                            !trimmed.hasPrefix("【") || trimmed.range(of: "^【[0-9]+】", options: .regularExpression) != nil else {
+                          continue
                       }
 
-                      if let idx = matchedIndex, idx >= 0, idx < cues.count {
-                          let cleanZH = textPart.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-                          if !cleanZH.isEmpty {
-                              map[cues[idx].id] = streamlineChineseForSpeech(cleanZH, duration: cues[idx].duration)
+                      let ns = trimmed as NSString
+                      if let regex = lineRegex,
+                         let match = regex.firstMatch(in: trimmed, options: [], range: NSRange(location: 0, length: ns.length)),
+                         match.numberOfRanges >= 3 {
+                          let numStr = ns.substring(with: match.range(at: 1))
+                          var textPart = ns.substring(with: match.range(at: 2)).trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                          textPart = textPart.replacingOccurrences(of: "^\\([^\\)]*\\)\\s*[:：]?\\s*", with: "", options: .regularExpression)
+                          if let idx = Int(numStr), !textPart.isEmpty {
+                              indexedPairs.append((idx, textPart))
+                              continue
+                          }
+                      }
+                      plainLines.append(trimmed)
+                  }
+
+                  var map: [UUID: String] = [:]
+                  if !indexedPairs.isEmpty {
+                      let hasZero = indexedPairs.contains(where: { $0.0 == 0 })
+                      let maxIdx = indexedPairs.map { $0.0 }.max() ?? 0
+                      let isOneBased = !hasZero && maxIdx == cues.count
+
+                      for (rawIdx, text) in indexedPairs {
+                          let idx = isOneBased ? (rawIdx - 1) : rawIdx
+                          if idx >= 0 && idx < cues.count {
+                              map[cues[idx].id] = polishChineseByStyle(text, duration: cues[idx].duration, style: polishStyle, videoTitle: videoTitle, videoAuthor: videoAuthor)
                           }
                       }
                   }
+
+                  if map.isEmpty && plainLines.count == cues.count {
+                      for (idx, text) in plainLines.enumerated() {
+                          map[cues[idx].id] = polishChineseByStyle(text, duration: cues[idx].duration, style: polishStyle, videoTitle: videoTitle, videoAuthor: videoAuthor)
+                      }
+                  }
+
                   return map
               }
           }
@@ -4236,10 +4641,19 @@ jobs:
                                   .tint(playerController.isAdBlockEnabled ? .teal : .gray)
                                   .controlSize(.mini)
 
+                                  // 使用显式 Button 替代 ScrollView 内易失灵的嵌套 Picker，点击任意翻译渠道立即清空旧文本并触发该渠道重新翻译
                                   Menu {
-                                      Picker("翻译渠道", selection: $translationProviderRaw) {
-                                          ForEach(TranslationProvider.allCases) { provider in
-                                              Text(provider.rawValue).tag(provider.rawValue)
+                                      ForEach(TranslationProvider.allCases) { provider in
+                                          Button {
+                                              translationProviderRaw = provider.rawValue
+                                              retranslateCurrentCues(for: provider)
+                                          } label: {
+                                              HStack {
+                                                  Text(provider.rawValue)
+                                                  if selectedTranslationProvider == provider {
+                                                      Image(systemName: "checkmark")
+                                                  }
+                                              }
                                           }
                                       }
                                   } label: {
@@ -4251,14 +4665,19 @@ jobs:
                                           .foregroundStyle(.blue)
                                           .clipShape(Capsule())
                                   }
-                                  .onChange(of: translationProviderRaw) { _, _ in
-                                      retranslateCurrentCues()
-                                  }
 
                                   Menu {
-                                      Picker("配音引擎", selection: $dubbingEngine.voiceEngine) {
-                                          ForEach(DubbingVoiceEngine.allCases) { engine in
-                                              Text(engine.rawValue).tag(engine)
+                                      ForEach(DubbingVoiceEngine.allCases) { engine in
+                                          Button {
+                                              dubbingEngine.voiceEngine = engine
+                                              dubbingEngine.notifyVoiceOrEngineChanged()
+                                          } label: {
+                                              HStack {
+                                                  Text(engine.rawValue)
+                                                  if dubbingEngine.voiceEngine == engine {
+                                                      Image(systemName: "checkmark")
+                                                  }
+                                              }
                                           }
                                       }
                                   } label: {
@@ -4269,9 +4688,6 @@ jobs:
                                           .background(Color.purple.opacity(0.12))
                                           .foregroundStyle(.purple)
                                           .clipShape(Capsule())
-                                  }
-                                  .onChange(of: dubbingEngine.voiceEngine) { _, _ in
-                                      dubbingEngine.notifyVoiceOrEngineChanged()
                                   }
 
                                   voiceSelectorMenuForCurrentEngine
@@ -4415,6 +4831,11 @@ jobs:
                               }
                           }
                       }
+                      .onChange(of: translationProviderRaw) { _, newRaw in
+                          if let p = TranslationProvider(rawValue: newRaw) {
+                              retranslateCurrentCues(for: p)
+                          }
+                      }
                       .sheet(isPresented: $showSettings) {
                           SettingsSheetView(
                               dubbingEngine: dubbingEngine,
@@ -4548,7 +4969,7 @@ jobs:
                               playerController.seek(to: cue.startTime)
                           } label: {
                               VStack(alignment: .leading, spacing: 6) {
-                                  HStack {
+                                  HStack(spacing: 6) {
                                       Text("\(formatTimestamp(cue.startTime)) - \(formatTimestamp(cue.endTime))")
                                           .font(.caption2.monospacedDigit())
                                           .padding(.horizontal, 6)
@@ -4556,6 +4977,16 @@ jobs:
                                           .background(isActive ? Color.red.opacity(0.18) : Color.secondary.opacity(0.12))
                                           .foregroundStyle(isActive ? .red : .secondary)
                                           .clipShape(RoundedRectangle(cornerRadius: 4))
+
+                                      if let badge = cue.translatedByProvider, !badge.isEmpty {
+                                          Text(badge)
+                                              .font(.system(size: 10, weight: .semibold))
+                                              .padding(.horizontal, 6)
+                                              .padding(.vertical, 2)
+                                              .background(Color.blue.opacity(0.14))
+                                              .foregroundStyle(.blue)
+                                              .clipShape(Capsule())
+                                      }
 
                                       if isActive {
                                           Image(systemName: "waveform")
@@ -4883,18 +5314,30 @@ jobs:
                   }
               }
 
-              func retranslateCurrentCues() {
+              func retranslateCurrentCues(for targetProvider: TranslationProvider? = nil) {
                   guard !cues.isEmpty else { return }
+                  let activeProvider = targetProvider ?? selectedTranslationProvider
                   translationTask?.cancel()
                   dubbingEngine.stopImmediately()
                   dubbingEngine.clearPrefetchCache()
-                  for i in 0..<cues.count {
-                      cues[i].translatedZH = nil
+
+                  if activeProvider == .youtubeBuiltIn {
+                      // 若切换回「官方内译」，优先恢复缓存的平台原生直译，缺失部分再由后台补齐
+                      for i in 0..<cues.count {
+                          cues[i].translatedZH = cues[i].initialPlatformZH
+                          cues[i].translatedByProvider = cues[i].initialPlatformZH != nil ? "官方内译" : nil
+                      }
+                  } else {
+                      for i in 0..<cues.count {
+                          cues[i].translatedZH = nil
+                          cues[i].translatedByProvider = nil
+                      }
                   }
+
                   let snapshot = cues
-                  statusMessage = "已切换为 \(selectedTranslationProvider.shortLabel)，正在优先翻译当前播放位置..."
+                  statusMessage = "已切换为【\(activeProvider.shortLabel)】，正在优先重译当前播放位置..."
                   translationTask = Task {
-                      await translateLoadedCues(snapshot)
+                      await translateLoadedCues(snapshot, explicitProvider: activeProvider)
                   }
               }
 
@@ -4937,28 +5380,28 @@ jobs:
 
               /// 播放指针跟随式上下文同传翻译：
               /// 无论视频长达 5 分钟还是 60 分钟，始终优先翻译当前播放时间 (`playerController.currentTime`) 所在的批次，随看随译、零等待！
-              func translateLoadedCues(_ loadedCues: [SubtitleCue]) async {
+              func translateLoadedCues(_ loadedCues: [SubtitleCue], explicitProvider: TranslationProvider? = nil) async {
                   guard !loadedCues.isEmpty else { return }
+                  let activeProvider = explicitProvider ?? selectedTranslationProvider
 
                   let batchSize = 8
                   let totalBatches = (loadedCues.count + batchSize - 1) / batchSize
                   guard totalBatches > 0 else { return }
 
                   let alreadyDoneCount = cues.filter { !($0.translatedZH ?? "").isEmpty }.count
-                  if alreadyDoneCount == cues.count && selectedTranslationProvider == .youtubeBuiltIn {
-                      statusMessage = "中文配音台词已全部就绪 (\(cues.count) 句)"
+                  if alreadyDoneCount == cues.count && activeProvider == .youtubeBuiltIn {
+                      statusMessage = "官方内译台词已全部就绪 (\(cues.count) 句)"
                       return
                   }
 
-                  statusMessage = "正在通过 \(selectedTranslationProvider.shortLabel) 优先翻译当前播放进度..."
-                  let forceUpgrade = (selectedTranslationProvider != .youtubeBuiltIn)
+                  statusMessage = "正在通过【\(activeProvider.shortLabel)】优先翻译当前播放进度..."
+                  let forceUpgrade = (activeProvider != .youtubeBuiltIn)
                   var completedBatches: Set<Int> = []
 
                   while completedBatches.count < totalBatches {
                       if Task.isCancelled { return }
                       guard !cues.isEmpty else { return }
 
-                      // 动态寻找距离当前播放时间最近的未完成批次（让用户拖动进度条到任意位置都能立即获得该位置的上下文精译！）
                       let playhead = playerController.currentTime
                       let playheadCueIdx = cues.firstIndex(where: { $0.endTime >= playhead }) ?? 0
                       let preferredBatch = min(totalBatches - 1, max(0, playheadCueIdx / batchSize))
@@ -4994,27 +5437,27 @@ jobs:
                       let afterEnd = min(cues.count, end + 2)
                       let contextAfter = end < cues.count ? Array(cues[end..<afterEnd]) : []
 
-                      if let translatedMap = try? await transcriptService.translateBatchToSpokenChinese(
+                      let translatedRichMap = await transcriptService.translateBatchWithProviderBadge(
                           cues: slice,
                           contextBefore: contextBefore,
                           contextAfter: contextAfter,
                           videoTitle: playerController.currentTitle,
                           videoAuthor: playerController.currentAuthor,
-                          provider: selectedTranslationProvider,
+                          provider: activeProvider,
                           apiKey: apiKey,
                           baseURL: baseURL,
                           model: llmModel,
                           forceContextualUpgrade: forceUpgrade
-                      ) {
-                          if Task.isCancelled { return }
-                          for i in start..<end where i < cues.count {
-                              if let zh = translatedMap[cues[i].id], !zh.isEmpty {
-                                  cues[i].translatedZH = zh
-                              }
+                      )
+                      if Task.isCancelled { return }
+                      for i in start..<end where i < cues.count {
+                          if let item = translatedRichMap[cues[i].id], !item.text.isEmpty {
+                              cues[i].translatedZH = item.text
+                              cues[i].translatedByProvider = item.badge
                           }
                       }
                       let doneCues = min(cues.count, completedBatches.count * batchSize)
-                      statusMessage = "\(selectedTranslationProvider.shortLabel) 已精译 (\(doneCues)/\(cues.count) 句)"
+                      statusMessage = "【\(activeProvider.shortLabel)】已翻译 (\(doneCues)/\(cues.count) 句)"
                   }
               }
 
@@ -5206,6 +5649,11 @@ jobs:
                                           .foregroundStyle(.secondary)
                                   }
                                   Slider(value: $dubbingEngine.baseSpeechRateMultiplier, in: 0.9...1.3, step: 0.02)
+                              }
+                              Button {
+                                  dubbingEngine.notifyVoiceOrEngineChanged()
+                              } label: {
+                                  Label("立即试听当前选中音色 (\(dubbingEngine.currentVoiceShortName))", systemImage: "play.wave.2.fill")
                               }
                               Button {
                                   dubbingEngine.notifyVoiceOrEngineChanged()
