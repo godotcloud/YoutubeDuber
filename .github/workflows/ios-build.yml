@@ -1,4 +1,4 @@
-name: iOS Build & Unsigned IPA (Zero-Unzip Standalone Workflow v3.8)
+name: iOS Build & Unsigned IPA (Zero-Unzip Standalone Workflow v3.8.1)
 
 on:
   push:
@@ -28,9 +28,9 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Bootstrap iOS Project Source Files (免解压自动写入完整工程源码 v3.8)
+      - name: Bootstrap iOS Project Source Files (免解压自动写入完整工程源码 v3.8.1)
         run: |
-          echo "正在生成/更新完整 iOS 工程源码 v3.8（含上下文感知同传翻译、防黑屏修复与 AVAudioEngine 变调音色引擎）..."
+          echo "正在生成/更新完整 iOS 工程源码 v3.8.1（含上下文感知同传翻译、防黑屏修复与 AVAudioEngine 变调音色引擎）..."
           mkdir -p YouTubeDubber/Models YouTubeDubber/Services YouTubeDubber/Views
           cat << 'EOF_FILE' > project.yml
           name: YouTubeDubber
@@ -74,8 +74,8 @@ jobs:
               settings:
                 base:
                   PRODUCT_BUNDLE_IDENTIFIER: com.ai.youtubedubber.app
-                  MARKETING_VERSION: "3.8.0"
-                  CURRENT_PROJECT_VERSION: "13"
+                  MARKETING_VERSION: "3.8.1"
+                  CURRENT_PROJECT_VERSION: "14"
                   CODE_SIGN_STYLE: Automatic
                   ENABLE_USER_SCRIPT_SANDBOXING: NO
           EOF_FILE
@@ -99,9 +99,9 @@ jobs:
               <key>CFBundlePackageType</key>
               <string>APPL</string>
               <key>CFBundleShortVersionString</key>
-              <string>3.8.0</string>
+              <string>3.8.1</string>
               <key>CFBundleVersion</key>
-              <string>13</string>
+              <string>14</string>
               <key>UILaunchScreen</key>
               <dict/>
               <key>UIBackgroundModes</key>
@@ -2873,9 +2873,9 @@ jobs:
                   case .aiSimultaneous:
                       var aiStr = streamlineChineseForSpeech(s, duration: duration)
                       aiStr = aiStr
-                          .replacingOccurrences(of: "因为如果你在", "要是你在")
-                          .replacingOccurrences(of: "所以他走", "于是对方走")
-                          .replacingOccurrences(of: "所以你有", "这样你就有了")
+                          .replacingOccurrences(of: "因为如果你在", with: "要是你在")
+                          .replacingOccurrences(of: "所以他走", with: "于是对方走")
+                          .replacingOccurrences(of: "所以你有", with: "这样你就有了")
                       return aiStr
 
                   case .conciseBroadcast:
@@ -2903,11 +2903,11 @@ jobs:
                   case .idiomaticExpert:
                       var exp = streamlineChineseForSpeech(s, duration: duration)
                       exp = exp
-                          .replacingOccurrences(of: "这里很简单", "局面化繁为简")
-                          .replacingOccurrences(of: "保持简单", "化繁为简")
-                          .replacingOccurrences(of: "我们直接走", "果断出击走")
-                          .replacingOccurrences(of: "同时捉马和兵", "一石二鸟双捉马兵")
-                          .replacingOccurrences(of: "你少一个兵", "子力陷入亏兵劣势")
+                          .replacingOccurrences(of: "这里很简单", with: "局面化繁为简")
+                          .replacingOccurrences(of: "保持简单", with: "化繁为简")
+                          .replacingOccurrences(of: "我们直接走", with: "果断出击走")
+                          .replacingOccurrences(of: "同时捉马和兵", with: "一石二鸟双捉马兵")
+                          .replacingOccurrences(of: "你少一个兵", with: "子力陷入亏兵劣势")
                       return exp
                   }
               }
@@ -5649,6 +5649,11 @@ jobs:
                                           .foregroundStyle(.secondary)
                                   }
                                   Slider(value: $dubbingEngine.baseSpeechRateMultiplier, in: 0.9...1.3, step: 0.02)
+                              }
+                              Button {
+                                  dubbingEngine.notifyVoiceOrEngineChanged()
+                              } label: {
+                                  Label("立即试听当前选中音色 (\(dubbingEngine.currentVoiceShortName))", systemImage: "play.wave.2.fill")
                               }
                               Button {
                                   dubbingEngine.notifyVoiceOrEngineChanged()
