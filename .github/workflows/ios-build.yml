@@ -1,4 +1,4 @@
-name: iOS Build & Unsigned IPA (Zero-Unzip Standalone Workflow v2.0)
+name: iOS Build & Unsigned IPA (Zero-Unzip Standalone Workflow v2.1)
 
 on:
   push:
@@ -28,9 +28,9 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Bootstrap iOS Project Source Files (免解压自动写入完整工程源码 v2.0)
+      - name: Bootstrap iOS Project Source Files (免解压自动写入完整工程源码 v2.1)
         run: |
-          echo "正在生成/更新完整 iOS 工程源码 v2.0（免解压单 YML 构建模式）..."
+          echo "正在生成/更新完整 iOS 工程源码 v2.1（免解压单 YML 构建模式）..."
           mkdir -p YouTubeDubber/Models YouTubeDubber/Services YouTubeDubber/Views
           cat << 'EOF_FILE' > project.yml
           name: YouTubeDubber
@@ -60,8 +60,8 @@ jobs:
                 properties:
                   CFBundleDisplayName: "YTDubber"
                   CFBundleName: "YTDubber"
-                  CFBundleShortVersionString: "2.0.0"
-                  CFBundleVersion: "2"
+                  CFBundleShortVersionString: "2.1.0"
+                  CFBundleVersion: "3"
                   UILaunchScreen: {}
                   UIBackgroundModes:
                     - audio
@@ -74,8 +74,8 @@ jobs:
               settings:
                 base:
                   PRODUCT_BUNDLE_IDENTIFIER: com.ai.youtubedubber.app
-                  MARKETING_VERSION: "2.0.0"
-                  CURRENT_PROJECT_VERSION: "2"
+                  MARKETING_VERSION: "2.1.0"
+                  CURRENT_PROJECT_VERSION: "3"
                   CODE_SIGN_STYLE: Automatic
                   ENABLE_USER_SCRIPT_SANDBOXING: NO
           EOF_FILE
@@ -99,9 +99,9 @@ jobs:
               <key>CFBundlePackageType</key>
               <string>APPL</string>
               <key>CFBundleShortVersionString</key>
-              <string>2.0.0</string>
+              <string>2.1.0</string>
               <key>CFBundleVersion</key>
-              <string>2</string>
+              <string>3</string>
               <key>UILaunchScreen</key>
               <dict/>
               <key>UIBackgroundModes</key>
@@ -138,7 +138,6 @@ jobs:
                   }
               }
 
-              /// 配置混合音频会话：允许 YouTube 原声与实时中文配音同时播放并支持自动压低原声 (Ducking)
               func configureAudioSession() {
                   do {
                       let session = AVAudioSession.sharedInstance()
@@ -222,7 +221,7 @@ jobs:
               }
           }
 
-          /// 5 大内置翻译渠道（涵盖 YouTube 内置自动翻译、谷歌 GTX 批量翻译、开源免 Key 翻译与免费 AI 大模型同传）
+          /// 5 大内置翻译渠道
           enum TranslationProvider: String, CaseIterable, Identifiable {
               case youtubeBuiltIn = "YouTube 官方内置翻译 (tlang=zh-Hans 极速免Key)"
               case googleGTXFree = "Google 翻译 GTX 批量通道 (免费免Key)"
@@ -243,13 +242,13 @@ jobs:
               }
           }
 
-          /// 5 大内置中文配音引擎（涵盖 iPhone 原生增强语音、Edge 免费晓晓/云希神经语音、Google 免费流式语音、WebKit 语音与 AI 云端语音）
+          /// 5 大内置中文配音引擎
           enum DubbingVoiceEngine: String, CaseIterable, Identifiable {
-              case edgeFreeNeuralTTS = "微软 Edge 免费神经语音 (晓晓/云希 免Key推荐)"
-              case googleFreeStreamTTS = "Google 免费流式中文女声 (在线免Key)"
-              case applePremiumTTS = "iPhone 原生 AVSpeechSynthesizer (离线零延迟)"
-              case webKitSpeechTTS = "WebKit 浏览器内置语音引擎 (离线免Key)"
-              case neuralCloudTTS = "AI 大模型云端语音 (CosyVoice2 / OpenAI TTS)"
+              case edgeFreeNeuralTTS = "微软 Edge 免费神经语音 (多主播音色·免Key推荐)"
+              case googleFreeStreamTTS = "Google 免费流式语音 (普通话/国语/粤语·免Key)"
+              case applePremiumTTS = "iPhone 原生 AVSpeechSynthesizer (离线零延迟·多音色)"
+              case webKitSpeechTTS = "WebKit 浏览器内置语音引擎 (离线多声线·免Key)"
+              case neuralCloudTTS = "AI 大模型云端语音 (CosyVoice2 / OpenAI 多音色)"
 
               var id: String { rawValue }
 
@@ -264,23 +263,190 @@ jobs:
               }
           }
 
-          /// 微软 Edge 免费神经语音中文主播音色
+          /// 模式 1 音色：微软 Edge 免费神经语音 8 款中文主播音色
           enum EdgeChineseVoice: String, CaseIterable, Identifiable {
               case xiaoxiao = "zh-CN-XiaoxiaoNeural"
               case yunxi = "zh-CN-YunxiNeural"
               case yunjian = "zh-CN-YunjianNeural"
               case xiaoyi = "zh-CN-XiaoyiNeural"
+              case yunyang = "zh-CN-YunyangNeural"
+              case xiaobei = "zh-CN-liaoning-XiaobeiNeural"
               case hsiaoChen = "zh-TW-HsiaoChenNeural"
+              case hiuMaan = "zh-HK-HiuMaanNeural"
 
               var id: String { rawValue }
 
               var displayName: String {
                   switch self {
-                  case .xiaoxiao: return "晓晓 (温柔自然女声 · 默认推荐)"
+                  case .xiaoxiao: return "晓晓 (温柔自然女声 · 综合首选)"
                   case .yunxi: return "云希 (阳光流利男声 · 科普解说)"
-                  case .yunjian: return "云健 (沉稳纪录片男声)"
-                  case .xiaoyi: return "晓伊 (清脆活力女声)"
+                  case .yunjian: return "云健 (沉稳磁性男声 · 纪录片)"
+                  case .xiaoyi: return "晓伊 (清脆活力女声 · 动漫生活)"
+                  case .yunyang: return "云扬 (专业新闻播音男声)"
+                  case .xiaobei: return "晓北 (东北话幽默女声)"
                   case .hsiaoChen: return "晓臻 (台湾国语自然女声)"
+                  case .hiuMaan: return "晓曼 (香港粤语地道女声)"
+                  }
+              }
+
+              var shortName: String {
+                  switch self {
+                  case .xiaoxiao: return "晓晓(女)"
+                  case .yunxi: return "云希(男)"
+                  case .yunjian: return "云健(男)"
+                  case .xiaoyi: return "晓伊(女)"
+                  case .yunyang: return "云扬(男)"
+                  case .xiaobei: return "晓北(东北)"
+                  case .hsiaoChen: return "晓臻(台)"
+                  case .hiuMaan: return "晓曼(粤)"
+                  }
+              }
+          }
+
+          /// 模式 2 音色：Google 免费流式 TTS 口音与声线预设
+          enum GoogleVoicePreset: String, CaseIterable, Identifiable {
+              case mandarinStandard = "zh-CN|1.0"
+              case mandarinWarm = "zh-CN|0.92"
+              case mandarinBright = "zh-CN|1.08"
+              case taiwanMandarin = "zh-TW|1.0"
+              case cantoneseHK = "zh-HK|1.0"
+
+              var id: String { rawValue }
+
+              var langCode: String {
+                  rawValue.components(separatedBy: "|").first ?? "zh-CN"
+              }
+
+              var displayName: String {
+                  switch self {
+                  case .mandarinStandard: return "大陆普通话 · 标准清澈女声"
+                  case .mandarinWarm: return "大陆普通话 · 柔和沉稳女声"
+                  case .mandarinBright: return "大陆普通话 · 轻快明朗女声"
+                  case .taiwanMandarin: return "台湾国语 · 温柔女声 (zh-TW)"
+                  case .cantoneseHK: return "香港粤语 · 地道女声 (zh-HK)"
+                  }
+              }
+
+              var shortName: String {
+                  switch self {
+                  case .mandarinStandard: return "普通话标准"
+                  case .mandarinWarm: return "普通话沉稳"
+                  case .mandarinBright: return "普通话轻快"
+                  case .taiwanMandarin: return "台湾国语"
+                  case .cantoneseHK: return "香港粤语"
+                  }
+              }
+          }
+
+          /// 模式 3 附加声线：iPhone 原生 AVSpeechSynthesizer 音调风格（可叠加在系统任意发音人之上）
+          enum AppleVoicePitchStyle: String, CaseIterable, Identifiable {
+              case natural = "natural"
+              case brightFemale = "brightFemale"
+              case deepMale = "deepMale"
+              case broadcaster = "broadcaster"
+
+              var id: String { rawValue }
+
+              var pitchValue: Float {
+                  switch self {
+                  case .natural: return 1.02
+                  case .brightFemale: return 1.16
+                  case .deepMale: return 0.84
+                  case .broadcaster: return 0.93
+                  }
+              }
+
+              var displayName: String {
+                  switch self {
+                  case .natural: return "原声自然语调 (1.02x)"
+                  case .brightFemale: return "清亮甜美女声调校 (1.16x)"
+                  case .deepMale: return "低沉浑厚男声调校 (0.84x)"
+                  case .broadcaster: return "沉稳播音腔调校 (0.93x)"
+                  }
+              }
+          }
+
+          /// 模式 4 音色：WebKit 浏览器内置 SpeechSynthesis 口音与音调预设
+          enum WebKitVoicePreset: String, CaseIterable, Identifiable {
+              case zhCNStandard = "zh-CN|1.0"
+              case zhCNBright = "zh-CN|1.18"
+              case zhCNDeep = "zh-CN|0.82"
+              case zhTWSoft = "zh-TW|1.02"
+              case zhHKCantonese = "zh-HK|1.0"
+
+              var id: String { rawValue }
+
+              var lang: String {
+                  rawValue.components(separatedBy: "|").first ?? "zh-CN"
+              }
+
+              var pitch: Double {
+                  Double(rawValue.components(separatedBy: "|").last ?? "1.0") ?? 1.0
+              }
+
+              var displayName: String {
+                  switch self {
+                  case .zhCNStandard: return "普通话 · 标准自然声线"
+                  case .zhCNBright: return "普通话 · 清亮女声声线"
+                  case .zhCNDeep: return "普通话 · 浑厚男声声线"
+                  case .zhTWSoft: return "台湾国语 · 温柔声线 (zh-TW)"
+                  case .zhHKCantonese: return "香港粤语 · 地道声线 (zh-HK)"
+                  }
+              }
+
+              var shortName: String {
+                  switch self {
+                  case .zhCNStandard: return "Web普通话"
+                  case .zhCNBright: return "Web清亮女"
+                  case .zhCNDeep: return "Web浑厚男"
+                  case .zhTWSoft: return "Web台湾腔"
+                  case .zhHKCantonese: return "Web粤语"
+                  }
+              }
+          }
+
+          /// 模式 5 音色：AI 大模型云端语音 (SiliconFlow CosyVoice2-0.5B 6款音色 + OpenAI 4款音色)
+          enum AICloudVoicePreset: String, CaseIterable, Identifiable {
+              case cosyAlex = "FunAudioLLM/CosyVoice2-0.5B:alex"
+              case cosyAnna = "FunAudioLLM/CosyVoice2-0.5B:anna"
+              case cosyBella = "FunAudioLLM/CosyVoice2-0.5B:bella"
+              case cosyBenjamin = "FunAudioLLM/CosyVoice2-0.5B:benjamin"
+              case cosyCharles = "FunAudioLLM/CosyVoice2-0.5B:charles"
+              case cosyClaire = "FunAudioLLM/CosyVoice2-0.5B:claire"
+              case openAINova = "nova"
+              case openAIAlloy = "alloy"
+              case openAIEcho = "echo"
+              case openAIShimmer = "shimmer"
+
+              var id: String { rawValue }
+
+              var displayName: String {
+                  switch self {
+                  case .cosyAlex: return "CosyVoice2 · Alex (沉稳自然男声)"
+                  case .cosyAnna: return "CosyVoice2 · Anna (知性温柔女声)"
+                  case .cosyBella: return "CosyVoice2 · Bella (甜美清澈女声)"
+                  case .cosyBenjamin: return "CosyVoice2 · Benjamin (磁性纪录片男声)"
+                  case .cosyCharles: return "CosyVoice2 · Charles (专业播音男声)"
+                  case .cosyClaire: return "CosyVoice2 · Claire (轻快活力女声)"
+                  case .openAINova: return "OpenAI · Nova (活力自然女声)"
+                  case .openAIAlloy: return "OpenAI · Alloy (均衡中性音色)"
+                  case .openAIEcho: return "OpenAI · Echo (温和儒雅男声)"
+                  case .openAIShimmer: return "OpenAI · Shimmer (舒缓叙事女声)"
+                  }
+              }
+
+              var shortName: String {
+                  switch self {
+                  case .cosyAlex: return "Alex(男)"
+                  case .cosyAnna: return "Anna(女)"
+                  case .cosyBella: return "Bella(女)"
+                  case .cosyBenjamin: return "Benjamin(男)"
+                  case .cosyCharles: return "Charles(男)"
+                  case .cosyClaire: return "Claire(女)"
+                  case .openAINova: return "Nova(女)"
+                  case .openAIAlloy: return "Alloy"
+                  case .openAIEcho: return "Echo(男)"
+                  case .openAIShimmer: return "Shimmer(女)"
                   }
               }
           }
@@ -307,6 +473,7 @@ jobs:
               @Published var duration: TimeInterval = 0
               @Published var playerState: YTPlayerState = .unstarted
               @Published var isReady: Bool = false
+              @Published var userSelectedSpeed: Double = 1.0
               @Published var playbackRate: Double = 1.0
               @Published var currentVideoID: String = "aircAruvnKk"
               @Published var currentTitle: String = "3Blue1Brown - 神经网络究竟是什么？"
@@ -319,8 +486,8 @@ jobs:
               var onTimeTick: ((TimeInterval, YTPlayerState) -> Void)?
               var onStateChange: ((YTPlayerState) -> Void)?
               var onWebViewCaptionsCaptured: ((String, String?, Bool) -> Void)?
+              var onWebKitSpeechEnded: (() -> Void)?
 
-              /// 解析完整 YouTube URL (含 youtu.be 短链、?si= 参数、Shorts、watch?v=) 或 11 位 Video ID
               static func extractVideoID(from input: String) -> String? {
                   let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
                   if trimmed.count == 11, !trimmed.contains("/"), !trimmed.contains("?") {
@@ -369,7 +536,6 @@ jobs:
                   evaluateJS("window.__setCleanLayout && window.__setCleanLayout(\(flag));")
               }
 
-              /// 动态调节 YouTube 原视频音量 (0 ~ 100)，同时通过 Web Audio GainNode 与 video.volume 压低原声
               func setOriginalVolume(_ volume: Int) {
                   let clamped = max(0, min(100, volume))
                   evaluateJS("window.__setYTVolume && window.__setYTVolume(\(clamped));")
@@ -390,18 +556,26 @@ jobs:
                   evaluateJS("window.__toggleYTPlay && window.__toggleYTPlay();")
               }
 
+              /// 用户手动切换基准倍速
               func setPlaybackSpeed(_ speed: Double) {
+                  userSelectedSpeed = speed
                   playbackRate = speed
                   evaluateJS("window.__setYTSpeed && window.__setYTSpeed(\(speed));")
               }
 
-              /// 调用 WebKit 内置 window.speechSynthesis 进行免费中文语音播报
-              func speakViaWebKit(text: String, rate: Double) {
+              /// 配音引擎临时调节视频速率（例如长句配音尚未读完时临时微降视频速率至 0.80x 等待配音收尾，读完立即恢复）
+              func setTemporarySyncSpeedFactor(_ factor: Double) {
+                  let effective = max(0.65, min(2.0, userSelectedSpeed * factor))
+                  evaluateJS("window.__setYTSpeed && window.__setYTSpeed(\(effective));")
+              }
+
+              /// 调用 WebKit 内置 window.speechSynthesis 进行免费中文语音播报（支持口音与音调预设及结束回调）
+              func speakViaWebKit(text: String, lang: String, rate: Double, pitch: Double) {
                   let escaped = text
                       .replacingOccurrences(of: "\\", with: "\\\\")
                       .replacingOccurrences(of: "'", with: "\\'")
                       .replacingOccurrences(of: "\n", with: " ")
-                  evaluateJS("window.__speakWebKitZH && window.__speakWebKitZH('\(escaped)', \(rate));")
+                  evaluateJS("window.__speakWebKitZH && window.__speakWebKitZH('\(escaped)', '\(lang)', \(rate), \(pitch));")
               }
 
               func stopWebKitSpeech() {
@@ -447,6 +621,8 @@ jobs:
                           self.playerState = state
                           self.onStateChange?(state)
                       }
+                  case "onWebKitSpeechEnded":
+                      self.onWebKitSpeechEnded?()
                   case "onCaptionsPayload":
                       if let rawText = body["payload"] as? String, !rawText.isEmpty {
                           let isZH = (body["isChinese"] as? Bool) ?? false
@@ -546,7 +722,6 @@ jobs:
                           } catch (e) {}
                       }
 
-                      // 1. 拦截浏览器自身发起的 /api/timedtext 请求（含真实 pot 令牌），并自动派生 &tlang=zh-Hans 官方内译请求
                       const origFetch = window.fetch;
                       let fetchedTlangForBase = {};
                       window.fetch = async function(...args) {
@@ -607,7 +782,6 @@ jobs:
                           return origSend.apply(this, arguments);
                       };
 
-                      // 2. 注入纯净播放器样式
                       let cleanLayoutEnabled = true;
                       function injectCleanCSS() {
                           if (!cleanLayoutEnabled) return;
@@ -658,7 +832,6 @@ jobs:
                           setTimeout(extractCaptionsAndMetadataFromPage, 3000);
                       });
 
-                      // 3. 在同源页面内提取视频信息、同作者/相关视频推荐以及字幕轨道（含 &tlang=zh-Hans 官方内译）
                       let captionsSentForVideo = null;
                       async function extractCaptionsAndMetadataFromPage() {
                           try {
@@ -670,7 +843,6 @@ jobs:
                                   const channelId = vd.channelId || '';
                                   const related = [];
 
-                                  // 从 ytInitialData 中搜集同作者及推荐视频
                                   function walkForVideos(obj) {
                                       if (!obj || typeof obj !== 'object') return;
                                       if (obj.videoId && typeof obj.videoId === 'string' && obj.videoId.length === 11) {
@@ -767,7 +939,6 @@ jobs:
                           } catch (e) {}
                       }
 
-                      // 4. Web Audio API GainNode + HTML5 <video> 控制与 WebKit SpeechSynthesis
                       let audioCtx = null;
                       let gainNode = null;
                       let hookedVideo = null;
@@ -822,15 +993,24 @@ jobs:
                           if (v) v.playbackRate = rate;
                       };
 
-                      window.__speakWebKitZH = function(text, rate) {
+                      window.__speakWebKitZH = function(text, lang, rate, pitch) {
                           try {
                               if (!window.speechSynthesis) return;
                               window.speechSynthesis.cancel();
                               const u = new SpeechSynthesisUtterance(text);
-                              u.lang = 'zh-CN';
-                              u.rate = Math.max(0.8, Math.min(1.5, rate || 1.08));
+                              u.lang = lang || 'zh-CN';
+                              u.rate = Math.max(0.85, Math.min(1.55, rate || 1.08));
+                              u.pitch = Math.max(0.75, Math.min(1.3, pitch || 1.0));
+                              u.onend = function() {
+                                  postToNative({ event: 'onWebKitSpeechEnded' });
+                              };
+                              u.onerror = function() {
+                                  postToNative({ event: 'onWebKitSpeechEnded' });
+                              };
                               window.speechSynthesis.speak(u);
-                          } catch (e) {}
+                          } catch (e) {
+                              postToNative({ event: 'onWebKitSpeechEnded' });
+                          }
                       };
 
                       window.__stopWebKitZH = function() {
@@ -868,14 +1048,6 @@ jobs:
                   let isChinese: Bool
               }
 
-              struct VideoPageDetails: Sendable {
-                  let title: String
-                  let author: String
-                  let channelID: String
-                  let cues: [SubtitleCue]
-                  let sameAuthorAndRelatedVideos: [VideoItem]
-              }
-
               enum TranscriptError: LocalizedError {
                   case videoPageFetchFailed
                   case noCaptionsAvailable
@@ -890,9 +1062,7 @@ jobs:
                   }
               }
 
-              /// 多通道获取视频字幕（若选择 `.youtubeBuiltIn` 则直接尝试拉取 YouTube 官方 `&tlang=zh-Hans` 简体中文内译轨道）
               func fetchMergedCues(for videoID: String, preferYouTubeBuiltInTranslation: Bool) async throws -> (cues: [SubtitleCue], title: String?, author: String?, channelID: String?, channelVideos: [VideoItem]) {
-                  // 通道 1：InnerTube ANDROID 客户端 API
                   if let res = try? await fetchViaInnerTube(
                       videoID: videoID,
                       clientName: "ANDROID",
@@ -904,7 +1074,6 @@ jobs:
                       return (mergeShortFragments(res.cues), res.title, res.author, res.channelID, moreVideos)
                   }
 
-                  // 通道 2：InnerTube ANDROID_VR 客户端 API
                   if let res = try? await fetchViaInnerTube(
                       videoID: videoID,
                       clientName: "ANDROID_VR",
@@ -916,7 +1085,6 @@ jobs:
                       return (mergeShortFragments(res.cues), res.title, res.author, res.channelID, moreVideos)
                   }
 
-                  // 通道 3：InnerTube IOS 客户端 API
                   if let res = try? await fetchViaInnerTube(
                       videoID: videoID,
                       clientName: "IOS",
@@ -928,7 +1096,6 @@ jobs:
                       return (mergeShortFragments(res.cues), res.title, res.author, res.channelID, moreVideos)
                   }
 
-                  // 通道 4：网页端平衡括号 JSON 提取
                   let watchURL = URL(string: "https://www.youtube.com/watch?v=\(videoID)")!
                   var request = URLRequest(url: watchURL)
                   request.setValue(
@@ -949,7 +1116,6 @@ jobs:
                   throw TranscriptError.captionParseFailed
               }
 
-              /// 解析由 WKWebView 同源拦截器捕获到的原始字幕与 `&tlang=zh-Hans` 内译字幕
               func parseRawCaptionPayload(_ rawText: String, translatedRawText: String?, alreadyChinese: Bool) -> [SubtitleCue] {
                   guard let data = rawText.data(using: .utf8) else { return [] }
                   var baseCues: [SubtitleCue] = []
@@ -960,7 +1126,6 @@ jobs:
                   }
                   guard !baseCues.isEmpty else { return [] }
 
-                  // 如果同时捕获到了 YouTube 官方 `&tlang=zh-Hans` 翻译结果，按时间戳对齐注入中文台词
                   if !alreadyChinese, let zhRaw = translatedRawText, let zhData = zhRaw.data(using: .utf8) {
                       let zhCues = (try? parseJSON3Captions(data: zhData, alreadyChinese: true))
                           ?? parseXMLCaptions(xml: zhRaw, alreadyChinese: true)
@@ -977,7 +1142,6 @@ jobs:
                   return mergeShortFragments(baseCues)
               }
 
-              /// 调用 YouTube InnerTube `/youtubei/v1/player` 接口获取字幕轨道与视频作者信息
               func fetchViaInnerTube(
                   videoID: String,
                   clientName: String,
@@ -1027,11 +1191,8 @@ jobs:
                   return (cues, title, author, channelID)
               }
 
-              /// 使用 InnerTube `/youtubei/v1/search` 与 `/youtubei/v1/next` 获取同作者其他视频与相关推荐视频
               func fetchChannelAndRelatedVideos(videoID: String, author: String, channelID: String) async -> [VideoItem] {
                   var collected: [VideoItem] = []
-
-                  // 若已知作者名或频道，优先通过 InnerTube search 搜索该作者的代表视频
                   let queryText = !author.isEmpty ? author : channelID
                   if !queryText.isEmpty,
                      let url = URL(string: "https://www.youtube.com/youtubei/v1/search?prettyPrint=false") {
@@ -1098,7 +1259,6 @@ jobs:
                   return ""
               }
 
-              /// 使用括号深度平衡算法从 HTML 中完整提取 `"captionTracks":[...]`
               func extractTracksFromHTML(_ html: String) throws -> [CaptionTrackInfo] {
                   guard let markerRange = html.range(of: "\"captionTracks\":") else {
                       throw TranscriptError.noCaptionsAvailable
@@ -1173,7 +1333,6 @@ jobs:
                   }
               }
 
-              /// 下载字幕轨道：若开启 `preferYouTubeBuiltInTranslation` 且原轨道非中文，同时并发拉取 `&tlang=zh-Hans` 官方中文字幕
               func downloadAndParseTrack(from tracks: [CaptionTrackInfo], preferYouTubeBuiltInTranslation: Bool) async throws -> [SubtitleCue] {
                   guard let track = tracks.first else {
                       throw TranscriptError.noCaptionsAvailable
@@ -1206,7 +1365,6 @@ jobs:
                       throw TranscriptError.captionParseFailed
                   }
 
-                  // 若启用了 YouTube 官方内置翻译 (`tlang=zh-Hans`)，直接从 timedtext 拉取官方对齐的中文字幕
                   if preferYouTubeBuiltInTranslation && !track.isChinese {
                       let tlangURLString = "\(json3URLString)&tlang=zh-Hans"
                       if let tlangURL = URL(string: tlangURLString),
@@ -1350,21 +1508,54 @@ jobs:
                      .replacingOccurrences(of: "&#x27;", with: "'")
               }
 
+              /// 解决「上一句没读完就被下一句打断」的源头优化：
+              /// 1. 修正 YouTube 自动字幕常见的重叠时间戳（若前一句 endTime > 后一句 startTime，将前一句截断至后一句开始时间）
+              /// 2. 将细碎短句（时长 < 3.2s 或未遇到句末标点且总长 <= 9.0s）合并为完整语义句，给语音合成留出充足、连贯的朗读时间窗
               func mergeShortFragments(_ cues: [SubtitleCue]) -> [SubtitleCue] {
                   guard !cues.isEmpty else { return [] }
-                  var merged: [SubtitleCue] = []
-                  var buffer = cues[0]
 
-                  for i in 1..<cues.count {
-                      let next = cues[i]
+                  // 第一步：消除相邻字幕的重叠时间戳 (Overlap Normalization)
+                  var normalized: [SubtitleCue] = []
+                  for i in 0..<cues.count {
+                      let current = cues[i]
+                      var clampedDuration = current.duration
+                      if i + 1 < cues.count {
+                          let nextStart = cues[i + 1].startTime
+                          if current.startTime + clampedDuration > nextStart {
+                              clampedDuration = max(0.6, nextStart - current.startTime)
+                          }
+                      }
+                      normalized.append(
+                          SubtitleCue(
+                              id: current.id,
+                              index: i,
+                              startTime: current.startTime,
+                              duration: clampedDuration,
+                              originalText: current.originalText,
+                              translatedZH: current.translatedZH
+                          )
+                      )
+                  }
+
+                  // 第二步：合并细碎短句为 3.2s ~ 9.0s 的自然完整配音单元
+                  var merged: [SubtitleCue] = []
+                  var buffer = normalized[0]
+
+                  for i in 1..<normalized.count {
+                      let next = normalized[i]
                       let gap = next.startTime - buffer.endTime
                       let endsWithSentencePunctuation = buffer.originalText.hasSuffix(".")
                           || buffer.originalText.hasSuffix("?")
                           || buffer.originalText.hasSuffix("!")
                           || buffer.originalText.hasSuffix("。")
                           || buffer.originalText.hasSuffix("？")
+                          || buffer.originalText.hasSuffix("！")
 
-                      if !endsWithSentencePunctuation && gap < 0.6 && (next.endTime - buffer.startTime) <= 7.5 {
+                      let combinedSpan = next.endTime - buffer.startTime
+                      let shouldMerge = (!endsWithSentencePunctuation && gap < 1.0 && combinedSpan <= 9.0)
+                          || (buffer.duration < 2.6 && gap < 0.8 && combinedSpan <= 8.5)
+
+                      if shouldMerge {
                           let newText = buffer.originalText + " " + next.originalText
                           let newZh: String?
                           if let bZh = buffer.translatedZH, let nZh = next.translatedZH {
@@ -1376,7 +1567,7 @@ jobs:
                               id: buffer.id,
                               index: merged.count,
                               startTime: buffer.startTime,
-                              duration: next.endTime - buffer.startTime,
+                              duration: combinedSpan,
                               originalText: newText,
                               translatedZH: newZh
                           )
@@ -1396,7 +1587,6 @@ jobs:
                   return merged
               }
 
-              /// 根据用户选择的翻译渠道批量翻译未翻译的字幕
               func translateBatchToSpokenChinese(
                   cues: [SubtitleCue],
                   provider: TranslationProvider,
@@ -1428,7 +1618,6 @@ jobs:
                   }
               }
 
-              /// Google GTX 批量合并翻译：将多句字幕通过换行符拼接后单次请求返回，比逐句请求快 15~20 倍
               func batchGoogleGTXTranslate(cues: [SubtitleCue]) async -> [UUID: String] {
                   var result: [UUID: String] = [:]
                   let combined = cues.map { $0.originalText.replacingOccurrences(of: "\n", with: " ") }.joined(separator: "\n")
@@ -1448,7 +1637,6 @@ jobs:
                       }
                   }
 
-                  // 若多行合并后行数不一致，并发单句回退
                   for cue in cues {
                       guard let encoded = cue.originalText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
                             let url = URL(string: "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-CN&dt=t&q=\(encoded)") else {
@@ -1466,7 +1654,6 @@ jobs:
                   return result
               }
 
-              /// MyMemory 开源免费翻译通道
               func myMemoryFreeTranslate(cues: [SubtitleCue]) async -> [UUID: String] {
                   var result: [UUID: String] = [:]
                   for cue in cues {
@@ -1485,7 +1672,6 @@ jobs:
                   return result
               }
 
-              /// AI 大模型口语化同声传译通道（支持 SiliconFlow 免费 Qwen2.5、Groq 免费 Llama-3.3、OpenAI）
               func llmTranslateBatch(
                   cues: [SubtitleCue],
                   apiKey: String,
@@ -1499,12 +1685,13 @@ jobs:
                   request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
 
                   let payloadLines = cues.enumerated().map { idx, cue in
-                      "[\(idx)] (\(String(format: "%.1fs", cue.duration))): \(cue.originalText)"
+                      let maxChars = max(6, Int(cue.duration * 3.8))
+                      return "[\(idx)] (限时\(String(format: "%.1fs", cue.duration)), 建议≤\(maxChars)字): \(cue.originalText)"
                   }.joined(separator: "\n")
 
                   let systemPrompt = """
                   你是一位专业的 YouTube 视频中文同声传译配音员。
-                  请将输入的每行字幕翻译为自然、流利、口语化的简体中文配音台词，字数需匹配括号内的时长以便语速自然。
+                  请将输入的每行字幕翻译为精炼、自然、口语化的简体中文配音台词，严格控制字数不超过括号内的建议字数，确保在限定时间内从容读完。
                   严格按原行号格式输出：`[行号] 中文配音台词`，不要添加任何多余解释。
                   """
 
@@ -1548,23 +1735,45 @@ jobs:
           import Foundation
           import AVFAudio
 
-          /// 多通道实时中文配音调度与合成引擎
+          /// 多通道实时中文配音调度与合成引擎（含完整句子防打断队列、提前音频预加载缓存与全模式音色选择）
           @MainActor
           final class RealtimeChineseDubbingEngine: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegate {
               @Published var isDubbingEnabled: Bool = true
               @Published var activeCueID: UUID?
               @Published var isSpeaking: Bool = false
+
+              // 5 大配音引擎与各自对应的音色配置
               @Published var voiceEngine: DubbingVoiceEngine = .edgeFreeNeuralTTS
               @Published var edgeVoice: EdgeChineseVoice = .xiaoxiao
+              @Published var googleVoicePreset: GoogleVoicePreset = .mandarinStandard
               @Published var selectedAppleVoiceIdentifier: String = ""
+              @Published var applePitchStyle: AppleVoicePitchStyle = .natural
+              @Published var webKitVoicePreset: WebKitVoicePreset = .zhCNStandard
+              @Published var aiCloudVoicePreset: AICloudVoicePreset = .cosyAnna
+
+              // 防打断与同步增强开关
+              @Published var preventMidSentenceCutoff: Bool = true
+              @Published var autoSlowVideoForLongSpeech: Bool = true
               @Published var duckedOriginalVolume: Double = 18.0
               @Published var baseSpeechRateMultiplier: Double = 1.08
 
               let synthesizer = AVSpeechSynthesizer()
               var audioPlayer: AVAudioPlayer?
               var lastSpokenCueID: UUID?
+              var currentlySpeakingCue: SubtitleCue?
+              var pendingCue: SubtitleCue?
+              var latestPlaybackTime: TimeInterval = 0
+              var latestVideoRate: Double = 1.0
+              var latestAPIKey: String = ""
+              var latestTTSBaseURL: String = ""
+
+              // 提前预加载缓存：存储即将到来的字幕音频，消除网络请求造成的起音滞后
+              var prefetchedAudioCache: [String: Data] = [:]
+              var prefetchingKeys: Set<String> = []
+
               var onVolumeDuckChange: ((Int) -> Void)?
-              var onWebKitSpeak: ((String, Double) -> Void)?
+              var onTempSpeedFactorChange: ((Double) -> Void)?
+              var onWebKitSpeak: ((String, String, Double, Double) -> Void)?
               var onWebKitStop: (() -> Void)?
 
               override init() {
@@ -1575,17 +1784,41 @@ jobs:
                   }
               }
 
+              /// 当前模式下选中的音色简短名称（用于主界面工具栏展示）
+              var currentVoiceShortName: String {
+                  switch voiceEngine {
+                  case .edgeFreeNeuralTTS:
+                      return edgeVoice.shortName
+                  case .googleFreeStreamTTS:
+                      return googleVoicePreset.shortName
+                  case .applePremiumTTS:
+                      if let v = AVSpeechSynthesisVoice(identifier: selectedAppleVoiceIdentifier) {
+                          return v.name
+                      }
+                      return applePitchStyle.displayName
+                  case .webKitSpeechTTS:
+                      return webKitVoicePreset.shortName
+                  case .neuralCloudTTS:
+                      return aiCloudVoicePreset.shortName
+                  }
+              }
+
               func bindHandlers(
                   volumeDuck: @escaping (Int) -> Void,
-                  webKitSpeak: @escaping (String, Double) -> Void,
+                  tempSpeedFactor: @escaping (Double) -> Void,
+                  webKitSpeak: @escaping (String, String, Double, Double) -> Void,
                   webKitStop: @escaping () -> Void
               ) {
                   self.onVolumeDuckChange = volumeDuck
+                  self.onTempSpeedFactorChange = tempSpeedFactor
                   self.onWebKitSpeak = webKitSpeak
                   self.onWebKitStop = webKitStop
               }
 
+              /// 用户手动拖动进度条、切换视频或暂停时立即清空队列并停止发声
               func stopImmediately() {
+                  pendingCue = nil
+                  currentlySpeakingCue = nil
                   if synthesizer.isSpeaking {
                       synthesizer.stopSpeaking(at: .immediate)
                   }
@@ -1593,9 +1826,14 @@ jobs:
                   onWebKitStop?()
                   isSpeaking = false
                   onVolumeDuckChange?(100)
+                  onTempSpeedFactorChange?(1.0)
               }
 
-              /// 列出当前 iPhone 上所有可用的中文语音包（含大陆普通话、台湾国语、香港粤语）
+              func clearPrefetchCache() {
+                  prefetchedAudioCache.removeAll()
+                  prefetchingKeys.removeAll()
+              }
+
               static func availableAppleChineseVoices() -> [AVSpeechSynthesisVoice] {
                   AVSpeechSynthesisVoice.speechVoices().filter {
                       $0.language.lowercased().hasPrefix("zh")
@@ -1607,6 +1845,7 @@ jobs:
                   }
               }
 
+              /// 播放器每 100ms 时间同步入口
               func syncWithPlayback(
                   currentTime: TimeInterval,
                   playerState: YTPlayerState,
@@ -1617,6 +1856,11 @@ jobs:
               ) {
                   guard isDubbingEnabled else { return }
 
+                  latestPlaybackTime = currentTime
+                  latestVideoRate = videoPlaybackRate
+                  latestAPIKey = apiKey
+                  latestTTSBaseURL = ttsBaseURL
+
                   if playerState != .playing {
                       if isSpeaking {
                           stopImmediately()
@@ -1624,36 +1868,47 @@ jobs:
                       return
                   }
 
-                  guard let currentCue = cues.first(where: {
-                      currentTime >= ($0.startTime - 0.1) && currentTime < $0.endTime
+                  // 提前 0.18s 匹配字幕以抵消音频硬件启动耗时
+                  guard let currentIdx = cues.firstIndex(where: {
+                      currentTime >= ($0.startTime - 0.18) && currentTime < $0.endTime
                   }) else {
                       return
                   }
 
+                  let currentCue = cues[currentIdx]
                   activeCueID = currentCue.id
+
+                  // 后台提前预加载接下来 2 句的在线 TTS 音频，使得切入下一句时 0ms 延迟直接播放！
+                  prefetchUpcomingCues(fromIndex: currentIdx, in: cues, apiKey: apiKey, baseURL: ttsBaseURL)
 
                   guard lastSpokenCueID != currentCue.id else { return }
                   guard let zhText = currentCue.translatedZH, !zhText.isEmpty else { return }
 
-                  lastSpokenCueID = currentCue.id
-                  let remainingWindow = max(0.8, (currentCue.endTime - currentTime) / max(0.5, videoPlaybackRate))
+                  // 核心优化：如果上一句正在朗读且开启了「完整读完不中断保护」
+                  if isSpeaking && preventMidSentenceCutoff {
+                      // 若还没有落后太多（落后不超过 5.5 秒），将新句排入 pendingCue 队列等待上一句自然读完后无缝衔接！
+                      if let activeSpeaking = currentlySpeakingCue,
+                         currentTime - activeSpeaking.endTime < 5.5 {
+                          pendingCue = currentCue
+                          // 若开启了智能视频微慢放协同，临时将视频速率降为 0.78x 给当前长句留出收尾时间
+                          if autoSlowVideoForLongSpeech {
+                              onTempSpeedFactorChange?(0.78)
+                          }
+                          return
+                      }
+                  }
 
-                  speakChinese(
-                      text: zhText,
-                      targetDuration: remainingWindow,
-                      videoRate: videoPlaybackRate,
-                      apiKey: apiKey,
-                      ttsBaseURL: ttsBaseURL
-                  )
+                  startSpeakingCue(currentCue)
               }
 
-              func speakChinese(
-                  text: String,
-                  targetDuration: TimeInterval,
-                  videoRate: Double,
-                  apiKey: String,
-                  ttsBaseURL: String
-              ) {
+              private func startSpeakingCue(_ cue: SubtitleCue) {
+                  guard let zhText = cue.translatedZH, !zhText.isEmpty else { return }
+                  lastSpokenCueID = cue.id
+                  currentlySpeakingCue = cue
+                  pendingCue = nil
+
+                  let remainingWindow = max(1.0, (cue.endTime - latestPlaybackTime) / max(0.5, latestVideoRate))
+
                   if synthesizer.isSpeaking {
                       synthesizer.stopSpeaking(at: .immediate)
                   }
@@ -1662,113 +1917,245 @@ jobs:
                   isSpeaking = true
                   onVolumeDuckChange?(Int(duckedOriginalVolume))
 
-                  let charCount = Double(text.count)
+                  let charCount = Double(zhText.count)
                   let estimatedSeconds = max(1.0, charCount / 4.2)
-                  let adaptiveSpeed = min(1.45, max(0.95, (estimatedSeconds / targetDuration) * baseSpeechRateMultiplier))
+                  // 计算自适应语速：当句较长或接续较晚时适度提速 (最高 1.42x)，既读完句子又不拖慢节奏
+                  let adaptiveSpeed = min(1.42, max(0.95, (estimatedSeconds / remainingWindow) * baseSpeechRateMultiplier))
 
                   switch voiceEngine {
                   case .edgeFreeNeuralTTS:
                       Task {
-                          await speakViaEdgeFreeNeuralTTS(text: text, speed: adaptiveSpeed, targetDuration: targetDuration)
+                          await speakViaEdgeFreeNeuralTTS(cue: cue, text: zhText, speed: adaptiveSpeed, targetDuration: remainingWindow)
                       }
                   case .googleFreeStreamTTS:
                       Task {
-                          await speakViaGoogleFreeTTS(text: text, speed: adaptiveSpeed, targetDuration: targetDuration)
+                          await speakViaGoogleFreeTTS(cue: cue, text: zhText, speed: adaptiveSpeed, targetDuration: remainingWindow)
                       }
                   case .applePremiumTTS:
-                      speakViaAppleNeuralVoice(text: text, adaptiveSpeed: adaptiveSpeed)
+                      speakViaAppleNeuralVoice(text: zhText, adaptiveSpeed: adaptiveSpeed)
                   case .webKitSpeechTTS:
-                      onWebKitSpeak?(text, adaptiveSpeed)
-                      // 根据预计朗读时长自动恢复原视频音量
-                      let holdSec = min(targetDuration, estimatedSeconds / adaptiveSpeed)
-                      Task {
-                          try? await Task.sleep(nanoseconds: UInt64(max(0.6, holdSec) * 1_000_000_000))
-                          if self.voiceEngine == .webKitSpeechTTS {
-                              self.isSpeaking = false
-                              self.onVolumeDuckChange?(100)
-                          }
-                      }
+                      onWebKitSpeak?(zhText, webKitVoicePreset.lang, adaptiveSpeed, webKitVoicePreset.pitch)
                   case .neuralCloudTTS:
-                      if !apiKey.trimmingCharacters(in: .whitespaces).isEmpty {
+                      if !latestAPIKey.trimmingCharacters(in: .whitespaces).isEmpty {
                           Task {
                               await speakViaCloudNeuralTTS(
-                                  text: text,
+                                  cue: cue,
+                                  text: zhText,
                                   speed: adaptiveSpeed,
-                                  targetDuration: targetDuration,
-                                  apiKey: apiKey,
-                                  baseURL: ttsBaseURL
+                                  targetDuration: remainingWindow,
+                                  apiKey: latestAPIKey,
+                                  baseURL: latestTTSBaseURL
                               )
                           }
                       } else {
                           Task {
-                              await speakViaEdgeFreeNeuralTTS(text: text, speed: adaptiveSpeed, targetDuration: targetDuration)
+                              await speakViaEdgeFreeNeuralTTS(cue: cue, text: zhText, speed: adaptiveSpeed, targetDuration: remainingWindow)
                           }
                       }
                   }
               }
 
-              /// 通道 1：微软 Edge 免费神经语音（支持晓晓、云希、云健等主播音色，若网络波动自动回退至 Google TTS / iOS 原生语音）
-              func speakViaEdgeFreeNeuralTTS(text: String, speed: Double, targetDuration: TimeInterval) async {
-                  let ratePercent = Int((speed - 1.0) * 100.0)
-                  let rateStr = ratePercent >= 0 ? "+\(ratePercent)%" : "\(ratePercent)%"
-
-                  // 尝试开源免 Key Edge TTS 兼容网关，若不可达则无缝切换至 Google 免费流式 TTS
-                  if let encodedText = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-                     let encodedVoice = edgeVoice.rawValue.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-                     let encodedRate = rateStr.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-                     let url = URL(string: "https://tts.travisvn.com/?text=\(encodedText)&voice=\(encodedVoice)&rate=\(encodedRate)") {
-                      var req = URLRequest(url: url)
-                      req.timeoutInterval = 3.5
-                      if let (data, resp) = try? await URLSession.shared.data(for: req),
-                         let http = resp as? HTTPURLResponse, http.statusCode == 200,
-                         data.count > 256,
-                         let player = try? AVAudioPlayer(data: data) {
-                          player.delegate = self
-                          player.prepareToPlay()
-                          player.play()
-                          self.audioPlayer = player
+              /// 当一句配音自然播放完毕时调用：若队列中有等待的 `pendingCue`，立即无缝衔接播放！
+              func handleUtteranceCompleted() {
+                  if let next = pendingCue {
+                      pendingCue = nil
+                      // 若该待播句尚未过期超过 3.5 秒，立即播报它
+                      if latestPlaybackTime < next.endTime + 3.5 {
+                          startSpeakingCue(next)
                           return
                       }
                   }
-
-                  // 无缝回退到 Google Translate 免费流式中文 TTS
-                  await speakViaGoogleFreeTTS(text: text, speed: speed, targetDuration: targetDuration)
+                  isSpeaking = false
+                  currentlySpeakingCue = nil
+                  onVolumeDuckChange?(100)
+                  onTempSpeedFactorChange?(1.0)
               }
 
-              /// 通道 2：Google Translate TTS 免费流式中文女声 (`translate_tts?client=tw-ob&tl=zh-CN`)
-              func speakViaGoogleFreeTTS(text: String, speed: Double, targetDuration: TimeInterval) async {
-                  guard let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-                        let url = URL(string: "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=zh-CN&q=\(encoded)") else {
-                      speakViaAppleNeuralVoice(text: text, adaptiveSpeed: speed)
+              // MARK: - 提前预加载下两句音频缓存 (消除网络 TTS 延迟导致的尾音截断)
+              private func cacheKey(for cueID: UUID) -> String {
+                  "\(cueID.uuidString)|\(voiceEngine.rawValue)|\(currentVoiceShortName)"
+              }
+
+              private func prefetchUpcomingCues(fromIndex idx: Int, in cues: [SubtitleCue], apiKey: String, baseURL: String) {
+                  guard voiceEngine == .edgeFreeNeuralTTS || voiceEngine == .googleFreeStreamTTS || voiceEngine == .neuralCloudTTS else {
                       return
                   }
+                  let lookaheadIndices = [idx, idx + 1, idx + 2].filter { $0 >= 0 && $0 < cues.count }
+                  for i in lookaheadIndices {
+                      let cue = cues[i]
+                      guard let zh = cue.translatedZH, !zh.isEmpty else { continue }
+                      let key = cacheKey(for: cue.id)
+                      guard prefetchedAudioCache[key] == nil, !prefetchingKeys.contains(key) else { continue }
+                      prefetchingKeys.insert(key)
 
+                      let engine = self.voiceEngine
+                      let edgeV = self.edgeVoice
+                      let googleV = self.googleVoicePreset
+                      let aiV = self.aiCloudVoicePreset
+
+                      Task {
+                          if let data = await Self.downloadTTSData(
+                              text: zh,
+                              engine: engine,
+                              edgeVoice: edgeV,
+                              googlePreset: googleV,
+                              aiPreset: aiV,
+                              apiKey: apiKey,
+                              baseURL: baseURL
+                          ) {
+                              self.prefetchedAudioCache[key] = data
+                          }
+                          self.prefetchingKeys.remove(key)
+                      }
+                  }
+              }
+
+              static func downloadTTSData(
+                  text: String,
+                  engine: DubbingVoiceEngine,
+                  edgeVoice: EdgeChineseVoice,
+                  googlePreset: GoogleVoicePreset,
+                  aiPreset: AICloudVoicePreset,
+                  apiKey: String,
+                  baseURL: String
+              ) async -> Data? {
+                  switch engine {
+                  case .edgeFreeNeuralTTS:
+                      if let encodedText = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                         let encodedVoice = edgeVoice.rawValue.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                         let url = URL(string: "https://tts.travisvn.com/?text=\(encodedText)&voice=\(encodedVoice)") {
+                          var req = URLRequest(url: url)
+                          req.timeoutInterval = 3.5
+                          if let (data, resp) = try? await URLSession.shared.data(for: req),
+                             let http = resp as? HTTPURLResponse, http.statusCode == 200, data.count > 256 {
+                              return data
+                          }
+                      }
+                      return await downloadGoogleTTSData(text: text, langCode: "zh-CN")
+
+                  case .googleFreeStreamTTS:
+                      return await downloadGoogleTTSData(text: text, langCode: googlePreset.langCode)
+
+                  case .neuralCloudTTS:
+                      let cleanBase = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                      guard !apiKey.isEmpty, let url = URL(string: "\(cleanBase)/audio/speech") else {
+                          return await downloadGoogleTTSData(text: text, langCode: "zh-CN")
+                      }
+                      var request = URLRequest(url: url)
+                      request.httpMethod = "POST"
+                      request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                      request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+
+                      let isCosy = aiPreset.rawValue.contains("CosyVoice")
+                      let payload: [String: Any] = [
+                          "model": isCosy ? "FunAudioLLM/CosyVoice2-0.5B" : "tts-1",
+                          "input": text,
+                          "voice": aiPreset.rawValue,
+                          "response_format": "mp3",
+                          "speed": 1.05
+                      ]
+                      request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+                      if let (data, resp) = try? await URLSession.shared.data(for: request),
+                         let http = resp as? HTTPURLResponse, http.statusCode == 200, data.count > 256 {
+                          return data
+                      }
+                      return await downloadGoogleTTSData(text: text, langCode: "zh-CN")
+
+                  default:
+                      return nil
+                  }
+              }
+
+              static func downloadGoogleTTSData(text: String, langCode: String) async -> Data? {
+                  guard let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                        let url = URL(string: "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=\(langCode)&q=\(encoded)") else {
+                      return nil
+                  }
                   var request = URLRequest(url: url)
                   request.timeoutInterval = 3.5
                   request.setValue(
                       "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
                       forHTTPHeaderField: "User-Agent"
                   )
+                  if let (data, resp) = try? await URLSession.shared.data(for: request),
+                     let http = resp as? HTTPURLResponse, http.statusCode == 200, data.count > 256 {
+                      return data
+                  }
+                  return nil
+              }
 
+              /// 播放二进制音频并根据【真实音频秒数 player.duration】与【当前剩余时间窗】精准调整倍速，确保整句读完！
+              private func playSynthesizedAudioData(_ data: Data, cue: SubtitleCue, fallbackText: String, fallbackSpeed: Double) -> Bool {
                   do {
-                      let (audioData, response) = try await URLSession.shared.data(for: request)
-                      guard let http = response as? HTTPURLResponse, http.statusCode == 200, audioData.count > 256 else {
-                          speakViaAppleNeuralVoice(text: text, adaptiveSpeed: speed)
-                          return
-                      }
-                      let player = try AVAudioPlayer(data: audioData)
+                      let player = try AVAudioPlayer(data: data)
                       player.delegate = self
                       player.enableRate = true
-                      player.rate = Float(min(1.45, max(0.95, speed)))
+
+                      // 计算此刻距离该句字幕结束还剩多少秒（至少给 1.0s）
+                      let nowWindow = max(1.0, (cue.endTime - latestPlaybackTime) / max(0.5, latestVideoRate))
+                      let actualAudioDuration = max(0.5, player.duration)
+                      let neededRate = (actualAudioDuration / nowWindow) * baseSpeechRateMultiplier
+
+                      // 若 Google 预设带有语速风格修饰，叠加进去
+                      var styleFactor = 1.0
+                      if voiceEngine == .googleFreeStreamTTS {
+                          if googleVoicePreset == .mandarinWarm { styleFactor = 0.94 }
+                          if googleVoicePreset == .mandarinBright { styleFactor = 1.08 }
+                      }
+
+                      player.rate = Float(min(1.45, max(0.92, neededRate * styleFactor)))
                       player.prepareToPlay()
                       player.play()
                       self.audioPlayer = player
+                      return true
                   } catch {
-                      speakViaAppleNeuralVoice(text: text, adaptiveSpeed: speed)
+                      return false
                   }
               }
 
-              /// 通道 3：iPhone 原生 AVSpeechSynthesizer 语音合成（纯离线零延迟）
+              /// 通道 1：微软 Edge 免费神经语音
+              func speakViaEdgeFreeNeuralTTS(cue: SubtitleCue, text: String, speed: Double, targetDuration: TimeInterval) async {
+                  let key = cacheKey(for: cue.id)
+                  if let cached = prefetchedAudioCache[key] {
+                      if playSynthesizedAudioData(cached, cue: cue, fallbackText: text, fallbackSpeed: speed) {
+                          return
+                      }
+                  }
+                  if let downloaded = await Self.downloadTTSData(
+                      text: text,
+                      engine: .edgeFreeNeuralTTS,
+                      edgeVoice: edgeVoice,
+                      googlePreset: googleVoicePreset,
+                      aiPreset: aiCloudVoicePreset,
+                      apiKey: latestAPIKey,
+                      baseURL: latestTTSBaseURL
+                  ) {
+                      prefetchedAudioCache[key] = downloaded
+                      if playSynthesizedAudioData(downloaded, cue: cue, fallbackText: text, fallbackSpeed: speed) {
+                          return
+                      }
+                  }
+                  speakViaAppleNeuralVoice(text: text, adaptiveSpeed: speed)
+              }
+
+              /// 通道 2：Google Translate TTS 免费流式语音
+              func speakViaGoogleFreeTTS(cue: SubtitleCue, text: String, speed: Double, targetDuration: TimeInterval) async {
+                  let key = cacheKey(for: cue.id)
+                  if let cached = prefetchedAudioCache[key] {
+                      if playSynthesizedAudioData(cached, cue: cue, fallbackText: text, fallbackSpeed: speed) {
+                          return
+                      }
+                  }
+                  if let downloaded = await Self.downloadGoogleTTSData(text: text, langCode: googleVoicePreset.langCode) {
+                      prefetchedAudioCache[key] = downloaded
+                      if playSynthesizedAudioData(downloaded, cue: cue, fallbackText: text, fallbackSpeed: speed) {
+                          return
+                      }
+                  }
+                  speakViaAppleNeuralVoice(text: text, adaptiveSpeed: speed)
+              }
+
+              /// 通道 3：iPhone 原生 AVSpeechSynthesizer（支持自定义发音人 + 4 款声线音调风格）
               func speakViaAppleNeuralVoice(text: String, adaptiveSpeed: Double) {
                   let utterance = AVSpeechUtterance(string: text)
                   if !selectedAppleVoiceIdentifier.isEmpty,
@@ -1779,58 +2166,45 @@ jobs:
                   }
 
                   let defaultRate = Double(AVSpeechUtteranceDefaultSpeechRate)
-                  utterance.rate = Float(min(0.63, max(0.45, defaultRate * adaptiveSpeed)))
-                  utterance.pitchMultiplier = 1.02
+                  utterance.rate = Float(min(0.64, max(0.45, defaultRate * adaptiveSpeed)))
+                  utterance.pitchMultiplier = applePitchStyle.pitchValue
                   utterance.volume = 1.0
                   utterance.preUtteranceDelay = 0.0
-                  utterance.postUtteranceDelay = 0.02
+                  utterance.postUtteranceDelay = 0.01
 
                   synthesizer.speak(utterance)
               }
 
-              /// 通道 5：调用 SiliconFlow (`FunAudioLLM/CosyVoice2-0.5B`) 或 OpenAI (`/v1/audio/speech`) 生成云端 AI 语音
+              /// 通道 5：AI 大模型云端语音
               func speakViaCloudNeuralTTS(
+                  cue: SubtitleCue,
                   text: String,
                   speed: Double,
                   targetDuration: TimeInterval,
                   apiKey: String,
                   baseURL: String
               ) async {
-                  let cleanBase = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                  guard let url = URL(string: "\(cleanBase)/audio/speech") else {
-                      await speakViaGoogleFreeTTS(text: text, speed: speed, targetDuration: targetDuration)
-                      return
-                  }
-
-                  var request = URLRequest(url: url)
-                  request.httpMethod = "POST"
-                  request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                  request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-
-                  let isSiliconFlow = cleanBase.lowercased().contains("siliconflow")
-                  let payload: [String: Any] = [
-                      "model": isSiliconFlow ? "FunAudioLLM/CosyVoice2-0.5B" : "tts-1",
-                      "input": text,
-                      "voice": isSiliconFlow ? "FunAudioLLM/CosyVoice2-0.5B:alex" : "nova",
-                      "response_format": "mp3",
-                      "speed": min(1.35, max(0.95, speed))
-                  ]
-                  request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
-
-                  do {
-                      let (audioData, response) = try await URLSession.shared.data(for: request)
-                      guard let http = response as? HTTPURLResponse, http.statusCode == 200, audioData.count > 256 else {
-                          await speakViaGoogleFreeTTS(text: text, speed: speed, targetDuration: targetDuration)
+                  let key = cacheKey(for: cue.id)
+                  if let cached = prefetchedAudioCache[key] {
+                      if playSynthesizedAudioData(cached, cue: cue, fallbackText: text, fallbackSpeed: speed) {
                           return
                       }
-                      let player = try AVAudioPlayer(data: audioData)
-                      player.delegate = self
-                      player.prepareToPlay()
-                      player.play()
-                      self.audioPlayer = player
-                  } catch {
-                      await speakViaGoogleFreeTTS(text: text, speed: speed, targetDuration: targetDuration)
                   }
+                  if let downloaded = await Self.downloadTTSData(
+                      text: text,
+                      engine: .neuralCloudTTS,
+                      edgeVoice: edgeVoice,
+                      googlePreset: googleVoicePreset,
+                      aiPreset: aiCloudVoicePreset,
+                      apiKey: apiKey,
+                      baseURL: baseURL
+                  ) {
+                      prefetchedAudioCache[key] = downloaded
+                      if playSynthesizedAudioData(downloaded, cue: cue, fallbackText: text, fallbackSpeed: speed) {
+                          return
+                      }
+                  }
+                  speakViaAppleNeuralVoice(text: text, adaptiveSpeed: speed)
               }
 
               static func selectBestChineseVoice() -> AVSpeechSynthesisVoice? {
@@ -1851,8 +2225,7 @@ jobs:
                   didFinish utterance: AVSpeechUtterance
               ) {
                   Task { @MainActor in
-                      self.isSpeaking = false
-                      self.onVolumeDuckChange?(100)
+                      self.handleUtteranceCompleted()
                   }
               }
 
@@ -1861,21 +2234,24 @@ jobs:
                   didCancel utterance: AVSpeechUtterance
               ) {
                   Task { @MainActor in
-                      self.isSpeaking = false
-                      self.onVolumeDuckChange?(100)
+                      if self.pendingCue == nil {
+                          self.isSpeaking = false
+                          self.onVolumeDuckChange?(100)
+                          self.onTempSpeedFactorChange?(1.0)
+                      }
                   }
               }
 
               nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
                   Task { @MainActor in
-                      self.isSpeaking = false
-                      self.onVolumeDuckChange?(100)
+                      self.handleUtteranceCompleted()
                   }
               }
           }
           EOF_FILE
           cat << 'EOF_FILE' > YouTubeDubber/Views/ContentView.swift
           import SwiftUI
+          import AVFAudio
 
           enum WorkspaceTab: String, CaseIterable, Identifiable {
               case subtitles = "双语字幕"
@@ -1897,21 +2273,19 @@ jobs:
               @State private var activeTab: WorkspaceTab = .subtitles
               @State private var filterSameAuthorOnly: Bool = false
 
-              // 进度条拖拽状态
               @State private var isScrubbing: Bool = false
               @State private var scrubTime: TimeInterval = 0
 
-              // 收藏夹持久化存储
               @AppStorage("favorite_videos_json") private var favoriteVideosJSON: String = "[]"
               @State private var favorites: [VideoItem] = []
 
-              // 翻译与云端配置
               @AppStorage("translation_provider") private var translationProviderRaw: String = TranslationProvider.youtubeBuiltIn.rawValue
               @AppStorage("openai_api_key") private var apiKey: String = ""
               @AppStorage("openai_base_url") private var baseURL: String = "https://api.siliconflow.cn/v1"
               @AppStorage("openai_model") private var llmModel: String = "Qwen/Qwen2.5-7B-Instruct"
 
               private let transcriptService = TranscriptAndTranslationService()
+              private let appleVoices = RealtimeChineseDubbingEngine.availableAppleChineseVoices()
 
               var selectedTranslationProvider: TranslationProvider {
                   get { TranslationProvider(rawValue: translationProviderRaw) ?? .youtubeBuiltIn }
@@ -1973,7 +2347,7 @@ jobs:
                                   .background(Color.black)
 
                               if dubbingEngine.isSpeaking {
-                                  Label(dubbingEngine.voiceEngine.shortLabel + " 播报中", systemImage: "waveform.circle.fill")
+                                  Label("\(dubbingEngine.voiceEngine.shortLabel) · \(dubbingEngine.currentVoiceShortName)", systemImage: "waveform.circle.fill")
                                       .font(.caption.bold())
                                       .padding(.horizontal, 10)
                                       .padding(.vertical, 5)
@@ -1985,7 +2359,6 @@ jobs:
 
                           // 3. 原生播放控制栏（可拖动进度条、快退10s、播放/暂停、快进10s、倍速、收藏按钮）
                           VStack(spacing: 6) {
-                              // 进度条与时间指示
                               HStack(spacing: 8) {
                                   Text(formatTimestamp(isScrubbing ? scrubTime : playerController.currentTime))
                                       .font(.caption2.monospacedDigit())
@@ -2016,7 +2389,6 @@ jobs:
                                       .frame(width: 42, alignment: .trailing)
                               }
 
-                              // 播放控制按钮组 + 视频作者信息 + 收藏按钮
                               HStack(spacing: 16) {
                                   Button {
                                       dubbingEngine.stopImmediately()
@@ -2049,14 +2421,14 @@ jobs:
                                           } label: {
                                               HStack {
                                                   Text(String(format: "%.2gx 倍速", rate))
-                                                  if abs(playerController.playbackRate - rate) < 0.05 {
+                                                  if abs(playerController.userSelectedSpeed - rate) < 0.05 {
                                                       Image(systemName: "checkmark")
                                                   }
                                               }
                                           }
                                       }
                                   } label: {
-                                      Text(String(format: "%.2gx", playerController.playbackRate))
+                                      Text(String(format: "%.2gx", playerController.userSelectedSpeed))
                                           .font(.caption.bold())
                                           .padding(.horizontal, 7)
                                           .padding(.vertical, 3)
@@ -2088,7 +2460,7 @@ jobs:
                           .padding(.vertical, 6)
                           .background(Color(.secondarySystemBackground).opacity(0.6))
 
-                          // 4. 实时配音开关与免费翻译/配音渠道快捷切换栏
+                          // 4. 实时配音开关、翻译源、配音引擎及【当前引擎专属音色】快捷切换栏
                           ScrollView(.horizontal, showsIndicators: false) {
                               HStack(spacing: 8) {
                                   Toggle(isOn: $dubbingEngine.isDubbingEnabled) {
@@ -2102,6 +2474,7 @@ jobs:
                                       if !enabled { dubbingEngine.stopImmediately() }
                                   }
 
+                                  // 翻译渠道选择
                                   Menu {
                                       Picker("翻译渠道", selection: $translationProviderRaw) {
                                           ForEach(TranslationProvider.allCases) { provider in
@@ -2121,6 +2494,7 @@ jobs:
                                       retranslateCurrentCues()
                                   }
 
+                                  // 配音引擎选择
                                   Menu {
                                       Picker("配音引擎", selection: $dubbingEngine.voiceEngine) {
                                           ForEach(DubbingVoiceEngine.allCases) { engine in
@@ -2128,7 +2502,7 @@ jobs:
                                           }
                                       }
                                   } label: {
-                                      Label("音: \(dubbingEngine.voiceEngine.shortLabel)", systemImage: "waveform")
+                                      Label("引擎: \(dubbingEngine.voiceEngine.shortLabel)", systemImage: "waveform")
                                           .font(.caption)
                                           .padding(.horizontal, 8)
                                           .padding(.vertical, 4)
@@ -2136,6 +2510,12 @@ jobs:
                                           .foregroundStyle(.purple)
                                           .clipShape(Capsule())
                                   }
+                                  .onChange(of: dubbingEngine.voiceEngine) { _, _ in
+                                      dubbingEngine.clearPrefetchCache()
+                                  }
+
+                                  // 当前配音模式专属【音色选择】菜单（每种配音模式均提供多音色切换！）
+                                  voiceSelectorMenuForCurrentEngine
 
                                   if isLoadingCaptions {
                                       ProgressView()
@@ -2215,6 +2595,64 @@ jobs:
                   }
               }
 
+              // MARK: - 动态匹配当前配音模式的专属音色快捷菜单
+              @ViewBuilder
+              private var voiceSelectorMenuForCurrentEngine: some View {
+                  Menu {
+                      switch dubbingEngine.voiceEngine {
+                      case .edgeFreeNeuralTTS:
+                          Picker("Edge 主播音色", selection: $dubbingEngine.edgeVoice) {
+                              ForEach(EdgeChineseVoice.allCases) { v in
+                                  Text(v.displayName).tag(v)
+                              }
+                          }
+                      case .googleFreeStreamTTS:
+                          Picker("Google 语音音色", selection: $dubbingEngine.googleVoicePreset) {
+                              ForEach(GoogleVoicePreset.allCases) { v in
+                                  Text(v.displayName).tag(v)
+                              }
+                          }
+                      case .applePremiumTTS:
+                          Picker("声线语调风格", selection: $dubbingEngine.applePitchStyle) {
+                              ForEach(AppleVoicePitchStyle.allCases) { style in
+                                  Text(style.displayName).tag(style)
+                              }
+                          }
+                          if !appleVoices.isEmpty {
+                              Divider()
+                              Picker("系统中文发音人", selection: $dubbingEngine.selectedAppleVoiceIdentifier) {
+                                  ForEach(appleVoices, id: \.identifier) { v in
+                                      Text("\(v.name) (\(v.language))").tag(v.identifier)
+                                  }
+                              }
+                          }
+                      case .webKitSpeechTTS:
+                          Picker("WebKit 语音声线", selection: $dubbingEngine.webKitVoicePreset) {
+                              ForEach(WebKitVoicePreset.allCases) { v in
+                                  Text(v.displayName).tag(v)
+                              }
+                          }
+                      case .neuralCloudTTS:
+                          Picker("AI 大模型音色", selection: $dubbingEngine.aiCloudVoicePreset) {
+                              ForEach(AICloudVoicePreset.allCases) { v in
+                                  Text(v.displayName).tag(v)
+                              }
+                          }
+                      }
+                  } label: {
+                      Label("音色: \(dubbingEngine.currentVoiceShortName)", systemImage: "person.wave.2.fill")
+                          .font(.caption)
+                          .padding(.horizontal, 8)
+                          .padding(.vertical, 4)
+                          .background(Color.orange.opacity(0.14))
+                          .foregroundStyle(.orange)
+                          .clipShape(Capsule())
+                  }
+                  .onChange(of: dubbingEngine.edgeVoice) { _, _ in dubbingEngine.clearPrefetchCache() }
+                  .onChange(of: dubbingEngine.googleVoicePreset) { _, _ in dubbingEngine.clearPrefetchCache() }
+                  .onChange(of: dubbingEngine.aiCloudVoicePreset) { _, _ in dubbingEngine.clearPrefetchCache() }
+              }
+
               // MARK: - 子视图 1：实时滚动双语字幕列表
               private var subtitlesListView: some View {
                   ScrollViewReader { proxy in
@@ -2226,7 +2664,7 @@ jobs:
                           } label: {
                               VStack(alignment: .leading, spacing: 6) {
                                   HStack {
-                                      Text(formatTimestamp(cue.startTime))
+                                      Text("\(formatTimestamp(cue.startTime)) - \(formatTimestamp(cue.endTime))")
                                           .font(.caption2.monospacedDigit())
                                           .padding(.horizontal, 6)
                                           .padding(.vertical, 2)
@@ -2385,19 +2823,26 @@ jobs:
                       volumeDuck: { targetVol in
                           playerController.setOriginalVolume(targetVol)
                       },
-                      webKitSpeak: { text, rate in
-                          playerController.speakViaWebKit(text: text, rate: rate)
+                      tempSpeedFactor: { factor in
+                          playerController.setTemporarySyncSpeedFactor(factor)
+                      },
+                      webKitSpeak: { text, lang, rate, pitch in
+                          playerController.speakViaWebKit(text: text, lang: lang, rate: rate, pitch: pitch)
                       },
                       webKitStop: {
                           playerController.stopWebKitSpeech()
                       }
                   )
 
+                  playerController.onWebKitSpeechEnded = {
+                      dubbingEngine.handleUtteranceCompleted()
+                  }
+
                   playerController.onTimeTick = { currentTime, state in
                       dubbingEngine.syncWithPlayback(
                           currentTime: currentTime,
                           playerState: state,
-                          videoPlaybackRate: playerController.playbackRate,
+                          videoPlaybackRate: playerController.userSelectedSpeed,
                           cues: cues,
                           apiKey: apiKey,
                           ttsBaseURL: baseURL
@@ -2432,6 +2877,7 @@ jobs:
                       return
                   }
                   dubbingEngine.stopImmediately()
+                  dubbingEngine.clearPrefetchCache()
                   cues = []
                   playerController.loadVideo(id: vid)
                   Task {
@@ -2442,6 +2888,7 @@ jobs:
               func retranslateCurrentCues() {
                   guard !cues.isEmpty else { return }
                   dubbingEngine.stopImmediately()
+                  dubbingEngine.clearPrefetchCache()
                   for i in 0..<cues.count {
                       cues[i].translatedZH = nil
                   }
@@ -2514,7 +2961,6 @@ jobs:
                   }
               }
 
-              // MARK: - 收藏夹管理
               func loadFavoritesFromStorage() {
                   guard let data = favoriteVideosJSON.data(using: .utf8),
                         let decoded = try? JSONDecoder().decode([VideoItem].self, from: data) else {
@@ -2576,15 +3022,13 @@ jobs:
                   NavigationStack {
                       Form {
                           Section {
-                              Picker("字幕翻译渠道", selection: $translationProviderRaw) {
-                                  ForEach(TranslationProvider.allCases) { provider in
-                                      Text(provider.rawValue).tag(provider.rawValue)
-                                  }
-                              }
+                              Toggle("完整读完保护 (不中途掐断上一句)", isOn: $dubbingEngine.preventMidSentenceCutoff)
+                              Toggle("长句智能微慢放视频等配音收尾", isOn: $dubbingEngine.autoSlowVideoForLongSpeech)
+                                  .disabled(!dubbingEngine.preventMidSentenceCutoff)
                           } header: {
-                              Text("1. 免费字幕翻译渠道选择")
+                              Text("1. 防中断与声画同步优化")
                           } footer: {
-                              Text("• YouTube 官方内置翻译 (tlang=zh-Hans)：直接拉取 YouTube 官方对齐的时间轴中文字幕，零等待、免 Key。\n• Google 翻译 GTX 批量通道：单次合并 20 句极速翻译，100% 免费免 Key。")
+                              Text("开启后，当某句中文翻译较长尚未读完而下一句字幕已出现时，系统不会粗暴掐断当前配音，而是自动将原视频微调为 0.78x 速率等待当前句自然读完，并在读完瞬间无缝衔接下一句。")
                           }
 
                           Section {
@@ -2594,18 +3038,43 @@ jobs:
                                   }
                               }
 
-                              if dubbingEngine.voiceEngine == .edgeFreeNeuralTTS {
-                                  Picker("Edge 神经主播音色", selection: $dubbingEngine.edgeVoice) {
+                              // 每种配音模式专属的音色选择器
+                              switch dubbingEngine.voiceEngine {
+                              case .edgeFreeNeuralTTS:
+                                  Picker("Edge 神经主播音色 (8款)", selection: $dubbingEngine.edgeVoice) {
                                       ForEach(EdgeChineseVoice.allCases) { voice in
                                           Text(voice.displayName).tag(voice)
                                       }
                                   }
-                              }
-
-                              if dubbingEngine.voiceEngine == .applePremiumTTS && !appleVoices.isEmpty {
-                                  Picker("iPhone 本地中文发音人", selection: $dubbingEngine.selectedAppleVoiceIdentifier) {
-                                      ForEach(appleVoices, id: \.identifier) { v in
-                                          Text("\(v.name) (\(v.language))").tag(v.identifier)
+                              case .googleFreeStreamTTS:
+                                  Picker("Google 语音音色与口音 (5款)", selection: $dubbingEngine.googleVoicePreset) {
+                                      ForEach(GoogleVoicePreset.allCases) { preset in
+                                          Text(preset.displayName).tag(preset)
+                                      }
+                                  }
+                              case .applePremiumTTS:
+                                  Picker("iOS 声线语调风格 (4款)", selection: $dubbingEngine.applePitchStyle) {
+                                      ForEach(AppleVoicePitchStyle.allCases) { style in
+                                          Text(style.displayName).tag(style)
+                                      }
+                                  }
+                                  if !appleVoices.isEmpty {
+                                      Picker("iPhone 系统中文发音人", selection: $dubbingEngine.selectedAppleVoiceIdentifier) {
+                                          ForEach(appleVoices, id: \.identifier) { v in
+                                              Text("\(v.name) (\(v.language))").tag(v.identifier)
+                                          }
+                                      }
+                                  }
+                              case .webKitSpeechTTS:
+                                  Picker("WebKit 语音声线与口音 (5款)", selection: $dubbingEngine.webKitVoicePreset) {
+                                      ForEach(WebKitVoicePreset.allCases) { preset in
+                                          Text(preset.displayName).tag(preset)
+                                      }
+                                  }
+                              case .neuralCloudTTS:
+                                  Picker("AI 大模型音色 (10款)", selection: $dubbingEngine.aiCloudVoicePreset) {
+                                      ForEach(AICloudVoicePreset.allCases) { preset in
+                                          Text(preset.displayName).tag(preset)
                                       }
                                   }
                               }
@@ -2630,9 +3099,17 @@ jobs:
                                   Slider(value: $dubbingEngine.baseSpeechRateMultiplier, in: 0.9...1.35, step: 0.02)
                               }
                           } header: {
-                              Text("2. 免费中文配音引擎与音色")
-                          } footer: {
-                              Text("• 微软 Edge 神经语音（晓晓/云希）与 Google 流式女声均支持免 Key 在线合成；若网络受限会自动无缝回退至 iPhone 本地语音，确保配音永不中断。")
+                              Text("2. 配音模式与专属音色选择")
+                          }
+
+                          Section {
+                              Picker("字幕翻译渠道", selection: $translationProviderRaw) {
+                                  ForEach(TranslationProvider.allCases) { provider in
+                                      Text(provider.rawValue).tag(provider.rawValue)
+                                  }
+                              }
+                          } header: {
+                              Text("3. 免费字幕翻译渠道选择")
                           }
 
                           Section {
@@ -2662,12 +3139,10 @@ jobs:
                                   .textInputAutocapitalization(.never)
                                   .disableAutocorrection(true)
                           } header: {
-                              Text("3. 免费 AI 大模型同传与 CosyVoice2 配音 (选填)")
-                          } footer: {
-                              Text("提示：硅基流动 (SiliconFlow) 提供 Qwen/Qwen2.5-7B-Instruct 免费大模型接口及 FunAudioLLM/CosyVoice2-0.5B 大模型语音合成。")
+                              Text("4. 免费 AI 大模型同传与 CosyVoice2 配音 (选填)")
                           }
                       }
-                      .navigationTitle("翻译与配音引擎设置")
+                      .navigationTitle("配音、音色与防中断设置")
                       .navigationBarTitleDisplayMode(.inline)
                       .toolbar {
                           ToolbarItem(placement: .confirmationAction) {
