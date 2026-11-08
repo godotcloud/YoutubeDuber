@@ -1,4 +1,4 @@
-name: iOS Build & Unsigned IPA (Zero-Unzip Standalone Workflow v3.4)
+name: iOS Build & Unsigned IPA (Zero-Unzip Standalone Workflow v3.4.1)
 
 on:
   push:
@@ -28,9 +28,9 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Bootstrap iOS Project Source Files (免解压自动写入完整工程源码 v3.4)
+      - name: Bootstrap iOS Project Source Files (免解压自动写入完整工程源码 v3.4.1)
         run: |
-          echo "正在生成/更新完整 iOS 工程源码 v3.4（含上下文感知同传翻译、防黑屏修复与 AVAudioEngine 变调音色引擎）..."
+          echo "正在生成/更新完整 iOS 工程源码 v3.4.1（含上下文感知同传翻译、防黑屏修复与 AVAudioEngine 变调音色引擎）..."
           mkdir -p YouTubeDubber/Models YouTubeDubber/Services YouTubeDubber/Views
           cat << 'EOF_FILE' > project.yml
           name: YouTubeDubber
@@ -74,8 +74,8 @@ jobs:
               settings:
                 base:
                   PRODUCT_BUNDLE_IDENTIFIER: com.ai.youtubedubber.app
-                  MARKETING_VERSION: "3.4.0"
-                  CURRENT_PROJECT_VERSION: "8"
+                  MARKETING_VERSION: "3.4.1"
+                  CURRENT_PROJECT_VERSION: "9"
                   CODE_SIGN_STYLE: Automatic
                   ENABLE_USER_SCRIPT_SANDBOXING: NO
           EOF_FILE
@@ -99,9 +99,9 @@ jobs:
               <key>CFBundlePackageType</key>
               <string>APPL</string>
               <key>CFBundleShortVersionString</key>
-              <string>3.4.0</string>
+              <string>3.4.1</string>
               <key>CFBundleVersion</key>
-              <string>8</string>
+              <string>9</string>
               <key>UILaunchScreen</key>
               <dict/>
               <key>UIBackgroundModes</key>
@@ -2448,6 +2448,12 @@ jobs:
               /// 语法与上下文感知的断句合并器：
               /// 识别英文从句连接词（that / which / because / and / to / of / in / with / the 等）与未完结短句，
               /// 将被时间轴切碎的跨行句子重组为语法完整的上下文语义句
+              /// 语法与上下文感知的断句合并器：
+              /// 识别英文从句连接词（that / which / because / and / to / of / in / with / the 等）与未完结短句，
+              /// 将被时间轴切碎的跨行句子重组为语法完整的上下文语义句
+              /// 语法与上下文感知的断句合并器：
+              /// 识别英文从句连接词（that / which / because / and / to / of / in / with / the 等）与未完结短句，
+              /// 将被时间轴切碎的跨行句子重组为语法完整的上下文语义句
               func mergeShortFragments(_ cues: [SubtitleCue]) -> [SubtitleCue] {
                   guard !cues.isEmpty else { return [] }
 
@@ -2488,7 +2494,7 @@ jobs:
                   for i in 1..<normalized.count {
                       let next = normalized[i]
                       let gap = next.startTime - buffer.endTime
-                      let trimmedBuf = buffer.originalText.trimmingCharacters(in: .whitespacesAndNewlines)
+                      let trimmedBuf = buffer.originalText.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
                       let endsWithSentencePunctuation = trimmedBuf.hasSuffix(".")
                           || trimmedBuf.hasSuffix("?")
                           || trimmedBuf.hasSuffix("!")
@@ -2588,7 +2594,7 @@ jobs:
                   case .siliconFlowFreeAI:
                       let sfBase = "https://api.siliconflow.cn/v1"
                       let sfModel = "Qwen/Qwen2.5-7B-Instruct"
-                      if apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                      if apiKey.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty {
                           return await pollinationsFreeContextLLMTranslate(
                               cues: untranslated,
                               contextBefore: contextBefore,
@@ -2609,7 +2615,7 @@ jobs:
                       )
 
                   case .customOpenAI:
-                      if apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                      if apiKey.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty {
                           return await pollinationsFreeContextLLMTranslate(
                               cues: untranslated,
                               contextBefore: contextBefore,
@@ -2718,7 +2724,7 @@ jobs:
 
                       if let encoded = paragraph.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
                          let url = URL(string: "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-CN&dt=t&q=\(encoded)"),
-                         let (data, _) = try? await URLSession.shared.data(for: url),
+                         let (data, _) = try? await URLSession.shared.data(from: url),
                          let arr = try? JSONSerialization.jsonObject(with: data) as? [Any],
                          let sentences = arr.first as? [[Any]] {
                           let fullTranslated = sentences.compactMap { $0.first as? String }.joined()
@@ -2735,14 +2741,14 @@ jobs:
                       let multiLine = chunk.map { $0.originalText.replacingOccurrences(of: "\n", with: " ") }.joined(separator: "\n")
                       if let encoded = multiLine.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
                          let url = URL(string: "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-CN&dt=t&q=\(encoded)"),
-                         let (data, _) = try? await URLSession.shared.data(for: url),
+                         let (data, _) = try? await URLSession.shared.data(from: url),
                          let arr = try? JSONSerialization.jsonObject(with: data) as? [Any],
                          let sentences = arr.first as? [[Any]] {
                           let fullTranslated = sentences.compactMap { $0.first as? String }.joined()
                           let lines = fullTranslated.components(separatedBy: "\n")
                           if lines.count == chunk.count {
                               for (idx, cue) in chunk.enumerated() {
-                                  let clean = lines[idx].trimmingCharacters(in: .whitespacesAndNewlines)
+                                  let clean = lines[idx].trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
                                   if !clean.isEmpty {
                                       result[cue.id] = streamlineChineseForSpeech(clean, duration: cue.duration)
                                   }
@@ -2783,10 +2789,10 @@ jobs:
                           guard let endRange = normalized.range(of: nextMarker, range: contentStart..<normalized.endIndex) else {
                               return []
                           }
-                          let seg = String(normalized[contentStart..<endRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+                          let seg = String(normalized[contentStart..<endRange.lowerBound]).trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
                           results.append(seg)
                       } else {
-                          let seg = String(normalized[contentStart...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                          let seg = String(normalized[contentStart...]).trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
                           results.append(seg)
                       }
                   }
@@ -3394,7 +3400,7 @@ jobs:
                       return nil
 
                   case .neuralCloudTTS:
-                      let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+                      let trimmedKey = apiKey.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
 
                       if aiPreset.isOpenAIVoice {
                           if !trimmedKey.isEmpty {
@@ -3457,7 +3463,7 @@ jobs:
                       let fallbackEdgeVoice = aiPreset.isMaleVoice ? "zh-CN-YunxiNeural" : "zh-CN-XiaoxiaoNeural"
                       if let encodedText = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
                          let url = URL(string: "https://tts.travisvn.com/?text=\(encodedText)&voice=\(fallbackEdgeVoice)") {
-                          if let (data, resp) = try? await URLSession.shared.data(for: url),
+                          if let (data, resp) = try? await URLSession.shared.data(from: url),
                              let http = resp as? HTTPURLResponse, http.statusCode == 200, data.count > 256 {
                               return (data, false)
                           }
@@ -3639,7 +3645,7 @@ jobs:
                   let mappedRate = baseRate + (smoothSpeed - 1.0) * 0.18
                   utterance.rate = Float(min(0.535, max(0.47, mappedRate)))
                   if let cents = customPitchCents {
-                      let ratio = pow(2.0, cents / 1200.0)
+                      let ratio = Float(pow(2.0, Double(cents) / 1200.0))
                       utterance.pitchMultiplier = max(0.72, min(1.32, ratio))
                   } else {
                       utterance.pitchMultiplier = applePitchStyle.pitchValue
@@ -4904,6 +4910,16 @@ jobs:
                                           .foregroundStyle(.secondary)
                                   }
                                   Slider(value: $dubbingEngine.baseSpeechRateMultiplier, in: 0.9...1.3, step: 0.02)
+                              }
+                              Button {
+                                  dubbingEngine.notifyVoiceOrEngineChanged()
+                              } label: {
+                                  Label("立即试听当前选中音色 (\(dubbingEngine.currentVoiceShortName))", systemImage: "play.wave.2.fill")
+                              }
+                              Button {
+                                  dubbingEngine.notifyVoiceOrEngineChanged()
+                              } label: {
+                                  Label("立即试听当前选中音色 (\(dubbingEngine.currentVoiceShortName))", systemImage: "play.wave.2.fill")
                               }
                               Button {
                                   dubbingEngine.notifyVoiceOrEngineChanged()
