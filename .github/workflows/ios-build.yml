@@ -1,4 +1,4 @@
-name: iOS Build & Unsigned IPA (Zero-Unzip Standalone Workflow v3.6)
+name: iOS Build & Unsigned IPA (Zero-Unzip Standalone Workflow v3.7)
 
 on:
   push:
@@ -28,9 +28,9 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Bootstrap iOS Project Source Files (免解压自动写入完整工程源码 v3.6)
+      - name: Bootstrap iOS Project Source Files (免解压自动写入完整工程源码 v3.7)
         run: |
-          echo "正在生成/更新完整 iOS 工程源码 v3.6（含上下文感知同传翻译、防黑屏修复与 AVAudioEngine 变调音色引擎）..."
+          echo "正在生成/更新完整 iOS 工程源码 v3.7（含上下文感知同传翻译、防黑屏修复与 AVAudioEngine 变调音色引擎）..."
           mkdir -p YouTubeDubber/Models YouTubeDubber/Services YouTubeDubber/Views
           cat << 'EOF_FILE' > project.yml
           name: YouTubeDubber
@@ -74,8 +74,8 @@ jobs:
               settings:
                 base:
                   PRODUCT_BUNDLE_IDENTIFIER: com.ai.youtubedubber.app
-                  MARKETING_VERSION: "3.6.0"
-                  CURRENT_PROJECT_VERSION: "11"
+                  MARKETING_VERSION: "3.7.0"
+                  CURRENT_PROJECT_VERSION: "12"
                   CODE_SIGN_STYLE: Automatic
                   ENABLE_USER_SCRIPT_SANDBOXING: NO
           EOF_FILE
@@ -99,9 +99,9 @@ jobs:
               <key>CFBundlePackageType</key>
               <string>APPL</string>
               <key>CFBundleShortVersionString</key>
-              <string>3.6.0</string>
+              <string>3.7.0</string>
               <key>CFBundleVersion</key>
-              <string>11</string>
+              <string>12</string>
               <key>UILaunchScreen</key>
               <dict/>
               <key>UIBackgroundModes</key>
@@ -1042,6 +1042,14 @@ jobs:
                       if (window.__ytDubberInjected) return;
                       window.__ytDubberInjected = true;
 
+                      // 关键：在 iOS WKWebView 中禁用 ManagedMediaSource / MediaSource (blob: 流)，
+                      // 强制 YouTube 移动版下发 iOS 原生 HLS/MP4 视频流，从而让 AirPlay 投屏能够完整传输高清视频画面（彻底解决 blob: 流投屏只有声音没有画面的问题）！
+                      try {
+                          delete window.ManagedMediaSource;
+                          delete window.MediaSource;
+                          delete window.WebKitMediaSource;
+                      } catch (e) {}
+
                       let adBlockEnabled = true;
                       window.__setAdBlockEnabled = function(enabled) {
                           adBlockEnabled = !!enabled;
@@ -1171,6 +1179,11 @@ jobs:
                           style.textContent = `
                               ytm-mobile-topbar-renderer,
                               .mobile-topbar-header,
+                              #header-bar,
+                              .player-placeholder,
+                              .watch-below-the-player,
+                              #below,
+                              ytm-watch-metadata,
                               ytm-SingleColumnWatchNextResultsRenderer,
                               ytm-single-column-watch-next-results-renderer,
                               ytm-item-section-renderer,
@@ -1184,56 +1197,64 @@ jobs:
                               .ytp-caption-window-container,
                               .caption-window,
                               .ytp-caption-segment,
-                              .ytm-caption-window-container {
+                              .ytm-caption-window-container,
+                              .ytp-unmute,
+                              .ytp-unmute-inner {
                                   display: none !important;
                                   width: 0 !important;
                                   height: 0 !important;
                                   max-width: 0 !important;
+                                  max-height: 0 !important;
                                   overflow: hidden !important;
                                   pointer-events: none !important;
                               }
-                              html, body {
+                              html, body, ytm-app, #app, .page-container, ytm-watch {
                                   margin: 0 !important;
                                   padding: 0 !important;
-                                  width: 100vw !important;
-                                  height: 100vh !important;
-                                  background: #000 !important;
-                                  overflow: hidden !important;
-                              }
-                              #player-container-id, #movie_player, .html5-video-player {
-                                  position: absolute !important;
                                   top: 0 !important;
                                   left: 0 !important;
                                   width: 100vw !important;
                                   height: 100vh !important;
                                   max-width: 100vw !important;
                                   max-height: 100vh !important;
-                                  margin: 0 !important;
-                                  padding: 0 !important;
-                                  z-index: 10 !important;
-                                  background: transparent !important;
-                                  overflow: hidden !important;
+                                  min-height: 100vh !important;
+                                  background: #000 !important;
+                                  overflow: visible !important;
+                                  transform: none !important;
                               }
-                              .html5-video-container {
-                                  position: absolute !important;
+                              #player-container-id, #player, .player-size, #movie_player, .html5-video-player, .html5-video-container {
+                                  position: fixed !important;
                                   top: 0 !important;
                                   left: 0 !important;
                                   right: 0 !important;
                                   bottom: 0 !important;
-                                  width: 100% !important;
-                                  height: 100% !important;
+                                  width: 100vw !important;
+                                  height: 100vh !important;
+                                  max-width: 100vw !important;
+                                  max-height: 100vh !important;
+                                  min-height: 100vh !important;
                                   margin: 0 !important;
                                   padding: 0 !important;
+                                  transform: none !important;
+                                  contain: none !important;
+                                  overflow: visible !important;
+                                  background: transparent !important;
                               }
                               video.html5-main-video, video {
-                                  position: absolute !important;
+                                  position: fixed !important;
                                   top: 0 !important;
                                   left: 0 !important;
-                                  width: 100% !important;
-                                  height: 100% !important;
+                                  right: 0 !important;
+                                  bottom: 0 !important;
+                                  width: 100vw !important;
+                                  height: 100vh !important;
+                                  max-width: 100vw !important;
+                                  max-height: 100vh !important;
+                                  min-height: 100vh !important;
                                   margin: 0 !important;
                                   padding: 0 !important;
                                   object-fit: contain !important;
+                                  transform: none !important;
                                   visibility: visible !important;
                                   opacity: 1 !important;
                                   display: block !important;
@@ -1509,6 +1530,36 @@ jobs:
 
                           const v = document.querySelector('video');
                           if (!v) return;
+
+                          // 动态解除 YouTube 在短视口下对 <video> 祖先节点 (.player-container / .player-size / #player) 施加的 max-height: 60vh 与 overflow: hidden 裁剪，彻底解决下半部分画面被黑色遮挡！
+                          if (cleanLayoutEnabled && window.location.hostname.includes('youtube.com')) {
+                              v.style.setProperty('position', 'fixed', 'important');
+                              v.style.setProperty('top', '0px', 'important');
+                              v.style.setProperty('left', '0px', 'important');
+                              v.style.setProperty('width', '100vw', 'important');
+                              v.style.setProperty('height', '100vh', 'important');
+                              v.style.setProperty('max-width', '100vw', 'important');
+                              v.style.setProperty('max-height', '100vh', 'important');
+                              v.style.setProperty('object-fit', 'contain', 'important');
+                              let p = v.parentElement;
+                              while (p && p !== document.body && p !== document.documentElement) {
+                                  if (p.style) {
+                                      p.style.setProperty('max-height', '100vh', 'important');
+                                      p.style.setProperty('min-height', '100vh', 'important');
+                                      p.style.setProperty('height', '100vh', 'important');
+                                      p.style.setProperty('max-width', '100vw', 'important');
+                                      p.style.setProperty('width', '100vw', 'important');
+                                      p.style.setProperty('top', '0px', 'important');
+                                      p.style.setProperty('left', '0px', 'important');
+                                      p.style.setProperty('margin', '0px', 'important');
+                                      p.style.setProperty('padding', '0px', 'important');
+                                      p.style.setProperty('overflow', 'visible', 'important');
+                                      p.style.setProperty('transform', 'none', 'important');
+                                  }
+                                  p = p.parentElement;
+                              }
+                          }
+
                           // 仅在首次发现 <video> 元素时绑定一次 AirPlay 属性与防意外暂停守护事件
                           if (!v.__ytAirPlayConfigured) {
                               v.__ytAirPlayConfigured = true;
@@ -2659,6 +2710,7 @@ jobs:
               }
 
               static var pollinationsCooldownUntil: Date = .distantPast
+              static var pollinationsConsecutiveFailures: Int = 0
 
               /// 基于全局主题（视频标题/作者）与前后句滑动窗口语境 (`contextBefore` / `contextAfter`) 进行高质量上下文同传翻译
               func translateBatchToSpokenChinese(
@@ -2766,8 +2818,13 @@ jobs:
                   }
                   var request = URLRequest(url: url)
                   request.httpMethod = "POST"
-                  request.timeoutInterval = 4.2
+                  request.timeoutInterval = 8.5
                   request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                  request.setValue("https://pollinations.ai/", forHTTPHeaderField: "Referer")
+                  request.setValue(
+                      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+                      forHTTPHeaderField: "User-Agent"
+                  )
 
                   let prevText = contextBefore.suffix(2).map {
                       "上文: \($0.originalText) -> \($0.translatedZH ?? "")"
@@ -2806,17 +2863,28 @@ jobs:
                   request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
                   if let (data, resp) = try? await URLSession.shared.data(for: request),
-                     let http = resp as? HTTPURLResponse, http.statusCode == 200,
-                     let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                     let choices = json["choices"] as? [[String: Any]],
-                     let message = choices.first?["message"] as? [String: Any],
-                     let content = message["content"] as? String {
-                      let parsed = parseIndexedLLMOutput(content: content, cues: cues)
-                      if !parsed.isEmpty {
-                          return parsed
+                     let http = resp as? HTTPURLResponse, http.statusCode == 200 {
+                      if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                         let choices = json["choices"] as? [[String: Any]],
+                         let message = choices.first?["message"] as? [String: Any],
+                         let content = message["content"] as? String {
+                          let parsed = parseIndexedLLMOutput(content: content, cues: cues)
+                          if !parsed.isEmpty {
+                              Self.pollinationsConsecutiveFailures = 0
+                              return parsed
+                          }
+                      } else if let rawContent = String(data: data, encoding: .utf8) {
+                          let parsed = parseIndexedLLMOutput(content: rawContent, cues: cues)
+                          if !parsed.isEmpty {
+                              Self.pollinationsConsecutiveFailures = 0
+                              return parsed
+                          }
                       }
                   }
-                  Self.pollinationsCooldownUntil = Date().addingTimeInterval(90)
+                  Self.pollinationsConsecutiveFailures += 1
+                  if Self.pollinationsConsecutiveFailures >= 2 {
+                      Self.pollinationsCooldownUntil = Date().addingTimeInterval(20)
+                  }
                   return await contextualParagraphGTXTranslate(cues: cues, contextBefore: contextBefore, videoTitle: videoTitle)
               }
 
@@ -3939,6 +4007,7 @@ jobs:
               @State private var isScrubbing: Bool = false
               @State private var showSyncOffsetBar: Bool = false
               @State private var scrubTime: TimeInterval = 0
+              @State private var translationTask: Task<Void, Never>? = nil
 
               @AppStorage("favorite_videos_json") private var favoriteVideosJSON: String = "[]"
               @State private var favorites: [VideoItem] = []
@@ -4119,9 +4188,14 @@ jobs:
                                   }
                                   .frame(maxWidth: .infinity, alignment: .leading)
 
-                                  // 原生 AirPlay 无线投屏选择器（支持系统音视频投屏与网页画面直投）
-                                  AirPlayRoutePickerButton()
-                                      .frame(width: 28, height: 28)
+                                  // 直接唤起 HTML5 <video> 原生 AirPlay 视频画面投屏选择器（避免空 AVRoutePickerView 仅投送音频）
+                                  Button {
+                                      playerController.triggerVideoAirPlayPicker()
+                                  } label: {
+                                      Image(systemName: "airplayvideo")
+                                          .font(.title3)
+                                          .foregroundStyle(.primary)
+                                  }
 
                                   Button {
                                       toggleFavoriteCurrentVideo()
@@ -4755,7 +4829,8 @@ jobs:
                       if self.cues.count <= 2 {
                           self.cues = parsed
                           self.isLoadingCaptions = false
-                          Task {
+                          self.translationTask?.cancel()
+                          self.translationTask = Task {
                               await translateLoadedCues(parsed)
                           }
                       }
@@ -4798,25 +4873,27 @@ jobs:
               }
 
               func startPlaying(platform: VideoPlatform, videoID: String) {
+                  translationTask?.cancel()
                   dubbingEngine.stopImmediately()
                   dubbingEngine.clearPrefetchCache()
                   cues = []
                   playerController.loadVideo(platform: platform, id: videoID)
-                  Task {
+                  translationTask = Task {
                       await fetchAndTranslateSubtitles(for: videoID, platform: platform)
                   }
               }
 
               func retranslateCurrentCues() {
                   guard !cues.isEmpty else { return }
+                  translationTask?.cancel()
                   dubbingEngine.stopImmediately()
                   dubbingEngine.clearPrefetchCache()
                   for i in 0..<cues.count {
                       cues[i].translatedZH = nil
                   }
                   let snapshot = cues
-                  statusMessage = "已切换为 \(selectedTranslationProvider.shortLabel)，正在重新翻译..."
-                  Task {
+                  statusMessage = "已切换为 \(selectedTranslationProvider.shortLabel)，正在优先翻译当前播放位置..."
+                  translationTask = Task {
                       await translateLoadedCues(snapshot)
                   }
               }
@@ -4858,26 +4935,14 @@ jobs:
                   }
               }
 
+              /// 播放指针跟随式上下文同传翻译：
+              /// 无论视频长达 5 分钟还是 60 分钟，始终优先翻译当前播放时间 (`playerController.currentTime`) 所在的批次，随看随译、零等待！
               func translateLoadedCues(_ loadedCues: [SubtitleCue]) async {
                   guard !loadedCues.isEmpty else { return }
 
-                  // 第 1 阶段（极速破冰）：若前 6 句尚无中文译文，先用 0.25s 的 Google 整段上下文翻译优先译出前 6 句，保证视频一开头就有配音！
-                  let firstEnd = min(6, cues.count)
-                  if firstEnd > 0 {
-                      let firstSlice = Array(cues[0..<firstEnd])
-                      if firstSlice.contains(where: { ($0.translatedZH ?? "").isEmpty }) {
-                          let fastMap = await transcriptService.contextualParagraphGTXTranslate(
-                              cues: firstSlice,
-                              contextBefore: [],
-                              videoTitle: playerController.currentTitle
-                          )
-                          for i in 0..<firstEnd where i < cues.count {
-                              if let zh = fastMap[cues[i].id] {
-                                  cues[i].translatedZH = zh
-                              }
-                          }
-                      }
-                  }
+                  let batchSize = 8
+                  let totalBatches = (loadedCues.count + batchSize - 1) / batchSize
+                  guard totalBatches > 0 else { return }
 
                   let alreadyDoneCount = cues.filter { !($0.translatedZH ?? "").isEmpty }.count
                   if alreadyDoneCount == cues.count && selectedTranslationProvider == .youtubeBuiltIn {
@@ -4885,13 +4950,44 @@ jobs:
                       return
                   }
 
-                  statusMessage = "正在通过 \(selectedTranslationProvider.shortLabel) 进行上下文同传翻译..."
-                  let batchSize = 10
+                  statusMessage = "正在通过 \(selectedTranslationProvider.shortLabel) 优先翻译当前播放进度..."
                   let forceUpgrade = (selectedTranslationProvider != .youtubeBuiltIn)
+                  var completedBatches: Set<Int> = []
 
-                  for start in stride(from: 0, to: loadedCues.count, by: batchSize) {
-                      let end = min(start + batchSize, loadedCues.count)
-                      guard end <= cues.count else { return }
+                  while completedBatches.count < totalBatches {
+                      if Task.isCancelled { return }
+                      guard !cues.isEmpty else { return }
+
+                      // 动态寻找距离当前播放时间最近的未完成批次（让用户拖动进度条到任意位置都能立即获得该位置的上下文精译！）
+                      let playhead = playerController.currentTime
+                      let playheadCueIdx = cues.firstIndex(where: { $0.endTime >= playhead }) ?? 0
+                      let preferredBatch = min(totalBatches - 1, max(0, playheadCueIdx / batchSize))
+
+                      var chosenBatch: Int? = nil
+                      if !completedBatches.contains(preferredBatch) {
+                          chosenBatch = preferredBatch
+                      } else {
+                          for offset in 1..<totalBatches {
+                              let forward = preferredBatch + offset
+                              if forward < totalBatches && !completedBatches.contains(forward) {
+                                  chosenBatch = forward
+                                  break
+                              }
+                              let backward = preferredBatch - offset
+                              if backward >= 0 && !completedBatches.contains(backward) {
+                                  chosenBatch = backward
+                                  break
+                              }
+                          }
+                      }
+
+                      guard let batchIdx = chosenBatch else { break }
+                      completedBatches.insert(batchIdx)
+
+                      let start = batchIdx * batchSize
+                      let end = min(start + batchSize, cues.count)
+                      guard start < end, end <= cues.count else { continue }
+
                       let slice = Array(cues[start..<end])
                       let beforeStart = max(0, start - 3)
                       let contextBefore = start > 0 ? Array(cues[beforeStart..<start]) : []
@@ -4910,13 +5006,15 @@ jobs:
                           model: llmModel,
                           forceContextualUpgrade: forceUpgrade
                       ) {
+                          if Task.isCancelled { return }
                           for i in start..<end where i < cues.count {
                               if let zh = translatedMap[cues[i].id], !zh.isEmpty {
                                   cues[i].translatedZH = zh
                               }
                           }
                       }
-                      statusMessage = "实时配音就绪 (\(end)/\(loadedCues.count) 句已通过上下文精译)"
+                      let doneCues = min(cues.count, completedBatches.count * batchSize)
+                      statusMessage = "\(selectedTranslationProvider.shortLabel) 已精译 (\(doneCues)/\(cues.count) 句)"
                   }
               }
 
@@ -5108,6 +5206,16 @@ jobs:
                                           .foregroundStyle(.secondary)
                                   }
                                   Slider(value: $dubbingEngine.baseSpeechRateMultiplier, in: 0.9...1.3, step: 0.02)
+                              }
+                              Button {
+                                  dubbingEngine.notifyVoiceOrEngineChanged()
+                              } label: {
+                                  Label("立即试听当前选中音色 (\(dubbingEngine.currentVoiceShortName))", systemImage: "play.wave.2.fill")
+                              }
+                              Button {
+                                  dubbingEngine.notifyVoiceOrEngineChanged()
+                              } label: {
+                                  Label("立即试听当前选中音色 (\(dubbingEngine.currentVoiceShortName))", systemImage: "play.wave.2.fill")
                               }
                               Button {
                                   dubbingEngine.notifyVoiceOrEngineChanged()
