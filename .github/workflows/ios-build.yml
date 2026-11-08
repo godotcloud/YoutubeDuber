@@ -1,4 +1,4 @@
-name: iOS Build & Unsigned IPA (Zero-Unzip Standalone Workflow v3.2)
+name: iOS Build & Unsigned IPA (Zero-Unzip Standalone Workflow v3.3)
 
 on:
   push:
@@ -28,9 +28,9 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Bootstrap iOS Project Source Files (免解压自动写入完整工程源码 v3.2)
+      - name: Bootstrap iOS Project Source Files (免解压自动写入完整工程源码 v3.3)
         run: |
-          echo "正在生成/更新完整 iOS 工程源码 v3.2（含 B站 WBI/弹幕字幕配音、OpenAI 音色锁定、双层去广告与 AirPlay 投屏）..."
+          echo "正在生成/更新完整 iOS 工程源码 v3.3（修复 AirPlay 画面投屏、B站直连播放与声音时间微调）..."
           mkdir -p YouTubeDubber/Models YouTubeDubber/Services YouTubeDubber/Views
           cat << 'EOF_FILE' > project.yml
           name: YouTubeDubber
@@ -60,8 +60,8 @@ jobs:
                 properties:
                   CFBundleDisplayName: "YTDubber"
                   CFBundleName: "YTDubber"
-                  CFBundleShortVersionString: "3.2.0"
-                  CFBundleVersion: "6"
+                  CFBundleShortVersionString: "3.3.0"
+                  CFBundleVersion: "7"
                   UILaunchScreen: {}
                   UIBackgroundModes:
                     - audio
@@ -74,8 +74,8 @@ jobs:
               settings:
                 base:
                   PRODUCT_BUNDLE_IDENTIFIER: com.ai.youtubedubber.app
-                  MARKETING_VERSION: "3.2.0"
-                  CURRENT_PROJECT_VERSION: "6"
+                  MARKETING_VERSION: "3.3.0"
+                  CURRENT_PROJECT_VERSION: "7"
                   CODE_SIGN_STYLE: Automatic
                   ENABLE_USER_SCRIPT_SANDBOXING: NO
           EOF_FILE
@@ -99,9 +99,9 @@ jobs:
               <key>CFBundlePackageType</key>
               <string>APPL</string>
               <key>CFBundleShortVersionString</key>
-              <string>3.2.0</string>
+              <string>3.3.0</string>
               <key>CFBundleVersion</key>
-              <string>6</string>
+              <string>7</string>
               <key>UILaunchScreen</key>
               <dict/>
               <key>UIBackgroundModes</key>
@@ -138,15 +138,11 @@ jobs:
                   }
               }
 
-              /// 配置混合音频会话：支持 YouTube/Bilibili 原声与实时中文配音混音、自动压低原声 (Ducking) 以及 AirPlay 无线投屏路由
+              /// 配置影视级播放会话：不启用 .mixWithOthers 以确保 iOS 将本应用的 <video> 识别为主视频源，从而支持完整的 AirPlay 视频画面投屏
               func configureAudioSession() {
                   do {
                       let session = AVAudioSession.sharedInstance()
-                      try session.setCategory(
-                          .playback,
-                          mode: .moviePlayback,
-                          options: [.mixWithOthers, .duckOthers, .allowAirPlay, .allowBluetoothA2DP]
-                      )
+                      try session.setCategory(.playback, mode: .moviePlayback, options: [])
                       try session.setActive(true)
                   } catch {
                       print("[AudioSession] 配置失败: \(error.localizedDescription)")
@@ -525,7 +521,7 @@ jobs:
           import SwiftUI
           import AVKit
 
-          /// 原生 iOS AirPlay 无线投屏按钮（封装 AVKit.AVRoutePickerView，支持一键投屏至 Apple TV / 智能电视 / Mac / HomePod）
+          /// 原生 iOS AirPlay 无线投屏按钮（封装 AVKit.AVRoutePickerView，支持一键投屏视频画面至 Apple TV / 智能电视 / Mac）
           struct AirPlayRoutePickerButton: UIViewRepresentable {
               func makeUIView(context: Context) -> AVRoutePickerView {
                   let picker = AVRoutePickerView(frame: CGRect(x: 0, y: 0, width: 32, height: 32))
@@ -539,7 +535,7 @@ jobs:
               func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
           }
 
-          /// 负责 WKWebView 与 YouTube / Bilibili 双平台原生 HTML5 <video> 播放器、广告拦截、无线投屏及同源字幕拦截器的双向通信
+          /// 负责 WKWebView 与 YouTube / Bilibili 双平台原生 HTML5 <video> 播放器、去广告、AirPlay 视频画面投屏及字幕拦截的双向通信
           @MainActor
           final class YouTubePlayerController: NSObject, ObservableObject, WKScriptMessageHandler, WKNavigationDelegate {
               @Published var currentPlatform: VideoPlatform = .youtube
@@ -557,7 +553,6 @@ jobs:
               @Published var relatedVideos: [VideoItem] = []
               @Published var isCleanPlayerLayout: Bool = true
 
-              // 广告屏蔽状态与拦截计数
               @Published var isAdBlockEnabled: Bool = true {
                   didSet {
                       let flag = isAdBlockEnabled ? "true" : "false"
@@ -673,12 +668,100 @@ jobs:
                       var request = URLRequest(url: url)
                       request.setValue("https://m.youtube.com/", forHTTPHeaderField: "Referer")
                       webView?.load(request)
+
                   case .bilibili:
-                      // 直接加载 m.bilibili.com 视频详情页，既支持完整的同源字幕/弹幕请求，又能通过注入 CSS 全屏化 HTML5 <video>
-                      guard let url = URL(string: "https://m.bilibili.com/video/\(id)") else { return }
-                      var request = URLRequest(url: url)
-                      request.setValue("https://m.bilibili.com/", forHTTPHeaderField: "Referer")
-                      webView?.load(request)
+                      // 异步解析 Bilibili 官方直连 MP4 流或 H5 专用外链播放器，彻底规避 m.bilibili.com 唤醒 App 拦截与无画面问题
+                      Task { @MainActor in
+                          let info = await TranscriptAndTranslationService.fetchBilibiliDirectPlayInfo(bvid: id)
+                          let baseURL = URL(string: "https://www.bilibili.com/video/\(id)/")!
+                          let html = Self.bilibiliPlayerHTML(bvid: id, cid: info.cid, directMP4URL: info.mp4URL)
+                          self.webView?.loadHTMLString(html, baseURL: baseURL)
+                      }
+                  }
+              }
+
+              /// 构建带合法 `https://www.bilibili.com` 源的 Bilibili 专属 HTML5 播放器页：
+              /// 优先使用直连 MP4 `<video>`（支持 100% 原生 AirPlay 视频画面投屏且零弹窗拦截），失败时自动回退至 `player.bilibili.com/player.html`
+              static func bilibiliPlayerHTML(bvid: String, cid: Int, directMP4URL: String?) -> String {
+                  let escapedMP4 = (directMP4URL ?? "").replacingOccurrences(of: "'", with: "\\'")
+                  let iframeSrc = "https://player.bilibili.com/player.html?isOutside=true&bvid=\(bvid)&cid=\(cid)&p=1&high_quality=1&danmaku=0&autoplay=1"
+                  return """
+                  <!DOCTYPE html>
+                  <html>
+                  <head>
+                      <meta charset="utf-8">
+                      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                      <meta name="referrer" content="no-referrer-when-downgrade">
+                      <style>
+                          html, body {
+                              margin: 0; padding: 0; width: 100%; height: 100%;
+                              background-color: #000; overflow: hidden;
+                              display: flex; align-items: center; justify-content: center;
+                          }
+                          video, iframe {
+                              width: 100%; height: 100%; border: 0; background: #000;
+                          }
+                      </style>
+                  </head>
+                  <body>
+                      <div id="bili_mount" style="width:100%;height:100%;"></div>
+                      <script>
+                          (function() {
+                              const mount = document.getElementById('bili_mount');
+                              const mp4Url = '\(escapedMP4)';
+                              const fallbackIframeUrl = '\(iframeSrc)';
+
+                              function mountFallbackIframe() {
+                                  mount.innerHTML = '';
+                                  const ifr = document.createElement('iframe');
+                                  ifr.src = fallbackIframeUrl;
+                                  ifr.setAttribute('allow', 'autoplay; fullscreen; encrypted-media');
+                                  ifr.setAttribute('allowfullscreen', 'true');
+                                  mount.appendChild(ifr);
+                              }
+
+                              if (mp4Url && mp4Url.startsWith('http')) {
+                                  const v = document.createElement('video');
+                                  v.src = mp4Url;
+                                  v.controls = true;
+                                  v.autoplay = true;
+                                  v.playsInline = true;
+                                  v.setAttribute('playsinline', 'true');
+                                  v.setAttribute('webkit-playsinline', 'true');
+                                  v.setAttribute('x-webkit-airplay', 'allow');
+                                  v.setAttribute('airplay', 'allow');
+                                  v.disableRemotePlayback = false;
+                                  v.onerror = function() {
+                                      mountFallbackIframe();
+                                  };
+                                  mount.appendChild(v);
+                                  v.play().catch(function(){});
+                              } else {
+                                  mountFallbackIframe();
+                              }
+                          })();
+                      </script>
+                  </body>
+                  </html>
+                  """
+              }
+
+              /// 拦截并阻止 Bilibili / YouTube 网页尝试唤醒外部 App (`bilibili://`, `itms-apps://` 等)，防止网页播放中断
+              func webView(
+                  _ webView: WKWebView,
+                  decidePolicyFor navigationAction: WKNavigationAction,
+                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+              ) {
+                  guard let url = navigationAction.request.url,
+                        let scheme = url.scheme?.lowercased() else {
+                      decisionHandler(.allow)
+                      return
+                  }
+                  if scheme == "http" || scheme == "https" || scheme == "about" || scheme == "blob" || scheme == "data" {
+                      decisionHandler(.allow)
+                  } else {
+                      // 阻止 bilibili://、youtube://、itms-apps:// 等跳出应用的行为
+                      decisionHandler(.cancel)
                   }
               }
 
@@ -688,7 +771,7 @@ jobs:
                   evaluateJS("window.__setCleanLayout && window.__setCleanLayout(\(flag));")
               }
 
-              /// 触发 HTML5 <video> 原生 AirPlay 视频无线投屏选择器
+              /// 触发 HTML5 <video> 原生 AirPlay 视频画面无线投屏选择器
               func triggerVideoAirPlayPicker() {
                   evaluateJS("window.__triggerAirPlay && window.__triggerAirPlay();")
               }
@@ -829,7 +912,7 @@ jobs:
               }
           }
 
-          /// SwiftUI 封装的 YouTube + Bilibili 双平台网页播放器（内置 WKContentRuleList 广告拦截与 AirPlay 支持）
+          /// SwiftUI 封装的 YouTube + Bilibili 双平台网页播放器
           struct YouTubeWebPlayerView: UIViewRepresentable {
               @ObservedObject var controller: YouTubePlayerController
 
@@ -844,9 +927,8 @@ jobs:
                   )
                   contentController.addUserScript(bridgeScript)
 
-                  // 编译并挂载 WebKit 原生网络层与 CSS 层广告拦截规则 (WKContentRuleList)
                   WKContentRuleListStore.default().compileContentRuleList(
-                      forIdentifier: "YTDubberAdBlockRules",
+                      forIdentifier: "YTDubberAdBlockRulesV2",
                       encodedContentRuleList: Self.adBlockRulesJSON()
                   ) { ruleList, _ in
                       if let ruleList = ruleList {
@@ -877,7 +959,6 @@ jobs:
 
               func updateUIView(_ uiView: WKWebView, context: Context) {}
 
-              /// WebKit 原生网络与 DOM 广告屏蔽规则 (同时拦截 YouTube DoubleClick/PageAd 与 Bilibili 广告域名及横幅)
               static func adBlockRulesJSON() -> String {
                   """
                   [
@@ -886,10 +967,10 @@ jobs:
                       "action": { "type": "block" }
                     },
                     {
-                      "trigger": { "url-filter": ".*" },
+                      "trigger": { "url-filter": ".*", "if-domain": ["*youtube.com"] },
                       "action": {
                         "type": "css-display-none",
-                        "selector": ".video-ads, .ytp-ad-module, .ytp-ad-overlay-container, .ytp-ad-message-container, ytm-promoted-sparkles-web-renderer, ytm-promoted-video-renderer, ytm-companion-ad-renderer, .ad-report, .bili-dyn-ad, .m-video-openapp, .open-app-btn, .m-navbar"
+                        "selector": ".video-ads, .ytp-ad-module, .ytp-ad-overlay-container, .ytp-ad-message-container, ytm-promoted-sparkles-web-renderer, ytm-promoted-video-renderer, ytm-companion-ad-renderer"
                       }
                     }
                   ]
@@ -915,7 +996,6 @@ jobs:
                           } catch (e) {}
                       }
 
-                      // 1. 拦截 YouTube (/api/timedtext) 与 Bilibili (aisubtitle.hdslb.com / /x/player/wbi/v2) 字幕请求
                       const origFetch = window.fetch;
                       let fetchedTlangForBase = {};
                       window.fetch = async function(...args) {
@@ -982,33 +1062,17 @@ jobs:
                                           translatedPayload: null,
                                           isChinese: isZH
                                       });
-                                  } else if (u.includes('/x/player/wbi/v2') || u.includes('/x/player/v2')) {
-                                      const json = JSON.parse(this.responseText);
-                                      const subs = json && json.data && json.data.subtitle && json.data.subtitle.subtitles;
-                                      if (subs && subs.length > 0 && subs[0].subtitle_url) {
-                                          let subUrl = subs[0].subtitle_url;
-                                          if (subUrl.startsWith('//')) subUrl = 'https:' + subUrl;
-                                          origFetch(subUrl).then(r => r.text()).then(t => {
-                                              if (t && t.length > 20) {
-                                                  postToNative({
-                                                      event: 'onCaptionsPayload',
-                                                      payload: t,
-                                                      translatedPayload: null,
-                                                      isChinese: false
-                                                  });
-                                              }
-                                          }).catch(function(){});
-                                      }
                                   }
                               } catch (e) {}
                           });
                           return origSend.apply(this, arguments);
                       };
 
-                      // 2. 注入纯净播放器样式（全面适配 m.youtube.com 与 m.bilibili.com）
+                      // 仅对 YouTube 网页注入纯净全屏样式（Bilibili 已使用独立纯净 HTML5 播放器容器）
                       let cleanLayoutEnabled = true;
                       function injectCleanCSS() {
                           if (!cleanLayoutEnabled) return;
+                          if (!window.location.hostname.includes('youtube.com')) return;
                           if (document.getElementById('__yt_clean_css')) return;
                           const style = document.createElement('style');
                           style.id = '__yt_clean_css';
@@ -1022,16 +1086,7 @@ jobs:
                               ytm-engagement-panel-section-list-renderer,
                               ytm-companion-slot,
                               ytm-promoted-sparkles-web-renderer,
-                              .related-chips-slot-wrapper,
-                              .m-navbar,
-                              .m-video-info-new,
-                              .m-video-part-new,
-                              .m-video2-awaken-btn,
-                              .launch-app-btn,
-                              .open-app-bar,
-                              .bili-app-link-btn,
-                              .m-footer,
-                              .card-box {
+                              .related-chips-slot-wrapper {
                                   display: none !important;
                               }
                               html, body {
@@ -1040,7 +1095,7 @@ jobs:
                                   background: #000 !important;
                                   overflow: hidden !important;
                               }
-                              #player-container-id, .player-container, #movie_player, .m-video-player, .player-wrapper, .bilibili-player {
+                              #player-container-id, .player-container, #movie_player {
                                   position: fixed !important;
                                   top: 0 !important;
                                   left: 0 !important;
@@ -1060,9 +1115,9 @@ jobs:
                           if (!cleanLayoutEnabled && el) el.remove();
                       };
 
-                      // 3. 动态贴片广告跳过器：自动点击「跳过广告」按钮并将不可跳过贴片广告静音快进到结尾
                       function trySkipAndBlockVideoAds() {
                           if (!adBlockEnabled) return;
+                          if (!window.location.hostname.includes('youtube.com')) return;
                           try {
                               const skipSelectors = [
                                   '.ytp-ad-skip-button',
@@ -1098,39 +1153,9 @@ jobs:
                           setTimeout(extractCaptionsAndMetadataFromPage, 2800);
                       });
 
-                      // 4. 在同源页面内提取 YouTube 或 Bilibili 的字幕轨道与视频信息
                       let captionsSentForVideo = null;
                       async function extractCaptionsAndMetadataFromPage() {
                           try {
-                              // A. 检查是否为 Bilibili 页面 (`window.__INITIAL_STATE__`)
-                              if (window.location.hostname.includes('bilibili.com') && window.__INITIAL_STATE__) {
-                                  const st = window.__INITIAL_STATE__;
-                                  const vData = st.videoData || (st.reduxAsyncConnect && st.reduxAsyncConnect.videoInfo) || {};
-                                  const bvid = vData.bvid || st.bvid || '';
-                                  const cid = vData.cid || (vData.pages && vData.pages[0] && vData.pages[0].cid) || 0;
-                                  if (bvid && cid && captionsSentForVideo !== bvid) {
-                                      const pResp = await origFetch('https://api.bilibili.com/x/player/wbi/v2?bvid=' + bvid + '&cid=' + cid, { credentials: 'include' });
-                                      const pJson = await pResp.json();
-                                      const subs = pJson && pJson.data && pJson.data.subtitle && pJson.data.subtitle.subtitles;
-                                      if (subs && subs.length > 0 && subs[0].subtitle_url) {
-                                          let subUrl = subs[0].subtitle_url;
-                                          if (subUrl.startsWith('//')) subUrl = 'https:' + subUrl;
-                                          const subRes = await origFetch(subUrl);
-                                          const subTxt = await subRes.text();
-                                          if (subTxt && subTxt.length > 20) {
-                                              captionsSentForVideo = bvid;
-                                              postToNative({
-                                                  event: 'onCaptionsPayload',
-                                                  payload: subTxt,
-                                                  translatedPayload: null,
-                                                  isChinese: false
-                                              });
-                                          }
-                                      }
-                                  }
-                              }
-
-                              // B. 检查是否为 YouTube 页面 (`window.ytInitialPlayerResponse`)
                               const pr = window.ytInitialPlayerResponse
                                   || (window.ytplayer && window.ytplayer.config && window.ytplayer.config.args && window.ytplayer.config.args.raw_player_response);
                               if (pr && pr.videoDetails) {
@@ -1235,31 +1260,17 @@ jobs:
                           } catch (e) {}
                       }
 
-                      let audioCtx = null;
-                      let gainNode = null;
-                      let hookedVideo = null;
-
-                      function ensureAudioGain(video) {
-                          try {
-                              video.setAttribute('airplay', 'allow');
-                              video.setAttribute('x-webkit-airplay', 'allow');
-                              if (hookedVideo === video && gainNode) return;
-                              const Ctx = window.AudioContext || window.webkitAudioContext;
-                              if (!Ctx) return;
-                              if (!audioCtx) audioCtx = new Ctx();
-                              const source = audioCtx.createMediaElementSource(video);
-                              gainNode = audioCtx.createGain();
-                              gainNode.gain.value = 1.0;
-                              source.connect(gainNode);
-                              gainNode.connect(audioCtx.destination);
-                              hookedVideo = video;
-                          } catch (e) {}
-                      }
-
+                      // 注意：绝不调用 audioCtx.createMediaElementSource(video)！
+                      // 从而保证：1) AirPlay 投屏能够正常输出完整视频画面（而非仅有声音）；2) Bilibili 跨域视频流不被 WebKit CORS 静音拦截！
                       window.__triggerAirPlay = function() {
                           const v = document.querySelector('video');
-                          if (v && v.webkitShowPlaybackTargetPicker) {
-                              v.webkitShowPlaybackTargetPicker();
+                          if (v) {
+                              v.disableRemotePlayback = false;
+                              v.setAttribute('airplay', 'allow');
+                              v.setAttribute('x-webkit-airplay', 'allow');
+                              if (v.webkitShowPlaybackTargetPicker) {
+                                  v.webkitShowPlaybackTargetPicker();
+                              }
                           }
                       };
 
@@ -1268,13 +1279,10 @@ jobs:
                           const v = document.querySelector('video');
                           if (v) {
                               try { v.volume = ratio; } catch (e) {}
-                              ensureAudioGain(v);
                           }
-                          if (gainNode && audioCtx) {
-                              try {
-                                  if (audioCtx.state === 'suspended') audioCtx.resume();
-                                  gainNode.gain.setTargetAtTime(ratio, audioCtx.currentTime, 0.05);
-                              } catch (e) {}
+                          const mp = document.getElementById('movie_player');
+                          if (mp && mp.setVolume) {
+                              try { mp.setVolume(vol); } catch (e) {}
                           }
                       };
 
@@ -1329,7 +1337,9 @@ jobs:
                           trySkipAndBlockVideoAds();
                           const v = document.querySelector('video');
                           if (!v) return;
+                          v.disableRemotePlayback = false;
                           v.setAttribute('x-webkit-airplay', 'allow');
+                          v.setAttribute('airplay', 'allow');
                           const state = v.ended ? 0 : (v.paused ? 2 : (v.seeking ? 3 : 1));
                           postToNative({
                               event: 'onTimeUpdate',
@@ -1386,6 +1396,45 @@ jobs:
                       }
                   }
                   return Double(hanCount) / Double(max(1, trimmed.count)) >= 0.35
+              }
+
+              
+              /// 获取 Bilibili 视频的直连 HTML5 MP4 播放流地址（彻底绕过 B站移动网页唤醒 App 弹窗拦截，且支持原生 AirPlay 画面投屏）
+              static func fetchBilibiliDirectPlayInfo(bvid: String) async -> (mp4URL: String?, cid: Int) {
+                  guard let viewURL = URL(string: "https://api.bilibili.com/x/web-interface/view?bvid=\(bvid)") else {
+                      return (nil, 0)
+                  }
+                  var req = URLRequest(url: viewURL)
+                  req.setValue("https://www.bilibili.com/video/\(bvid)", forHTTPHeaderField: "Referer")
+                  req.setValue(
+                      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+                      forHTTPHeaderField: "User-Agent"
+                  )
+                  guard let (data, _) = try? await URLSession.shared.data(for: req),
+                        let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                        let dataDict = root["data"] as? [String: Any] else {
+                      return (nil, 0)
+                  }
+                  let cid = (dataDict["cid"] as? Int) ?? ((dataDict["pages"] as? [[String: Any]])?.first?["cid"] as? Int) ?? 0
+                  guard cid > 0 else { return (nil, 0) }
+
+                  let playURLStr = "https://api.bilibili.com/x/player/playurl?bvid=\(bvid)&cid=\(cid)&qn=64&fnval=1&platform=html5&high_quality=1"
+                  guard let playURL = URL(string: playURLStr) else { return (nil, cid) }
+                  var pReq = URLRequest(url: playURL)
+                  pReq.setValue("https://www.bilibili.com/video/\(bvid)", forHTTPHeaderField: "Referer")
+                  pReq.setValue(
+                      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+                      forHTTPHeaderField: "User-Agent"
+                  )
+                  if let (pData, _) = try? await URLSession.shared.data(for: pReq),
+                     let pRoot = try? JSONSerialization.jsonObject(with: pData) as? [String: Any],
+                     let pDataObj = pRoot["data"] as? [String: Any],
+                     let durlList = pDataObj["durl"] as? [[String: Any]],
+                     let firstURL = durlList.first?["url"] as? String,
+                     !firstURL.isEmpty {
+                      return (firstURL, cid)
+                  }
+                  return (nil, cid)
               }
 
               // MARK: - 双平台视频关键词搜索 (YouTube & Bilibili)
@@ -2605,6 +2654,39 @@ jobs:
               @Published var duckedOriginalVolume: Double = 18.0
               @Published var baseSpeechRateMultiplier: Double = 1.02
 
+              /// 配音时间轴微调偏移量（单位：秒，范围 -5.0s ~ +5.0s）：
+              /// 负值（如 -0.3s）表示配音【提前 0.3 秒】触发；正值（如 +0.3s）表示配音【延后 0.3 秒】触发
+              @Published var audioSyncOffset: Double = UserDefaults.standard.double(forKey: "dubber_audio_sync_offset") {
+                  didSet {
+                      let rounded = (audioSyncOffset * 10.0).rounded() / 10.0
+                      if abs(audioSyncOffset - rounded) > 0.001 {
+                          audioSyncOffset = rounded
+                      }
+                      UserDefaults.standard.set(audioSyncOffset, forKey: "dubber_audio_sync_offset")
+                  }
+              }
+
+              var syncOffsetFormattedLabel: String {
+                  if abs(audioSyncOffset) < 0.05 {
+                      return "0.0s 同步"
+                  } else if audioSyncOffset < 0 {
+                      return String(format: "提前 %.1fs", abs(audioSyncOffset))
+                  } else {
+                      return String(format: "延后 %.1fs", audioSyncOffset)
+                  }
+              }
+
+              func adjustSyncOffset(by delta: Double) {
+                  let next = max(-5.0, min(5.0, ((audioSyncOffset + delta) * 10.0).rounded() / 10.0))
+                  audioSyncOffset = next
+                  lastSpokenCueID = nil
+              }
+
+              func resetSyncOffset() {
+                  audioSyncOffset = 0.0
+                  lastSpokenCueID = nil
+              }
+
               let synthesizer = AVSpeechSynthesizer()
               var audioPlayer: AVAudioPlayer?
               var lastSpokenCueID: UUID?
@@ -2752,8 +2834,13 @@ jobs:
                       return
                   }
 
+                  // 应用用户设定的配音时间微调偏移量 (audioSyncOffset)：
+                  // 若 audioSyncOffset 为 -0.3s（提前 0.3s），则 effectiveTime = currentTime + 0.3s
+                  // 若 audioSyncOffset 为 +0.3s（延后 0.3s），则 effectiveTime = currentTime - 0.3s
+                  let effectiveTime = currentTime - audioSyncOffset
+
                   guard let currentIdx = cues.firstIndex(where: {
-                      currentTime >= ($0.startTime - 0.18) && currentTime < $0.endTime
+                      effectiveTime >= ($0.startTime - 0.15) && effectiveTime < $0.endTime
                   }) else {
                       return
                   }
@@ -3247,6 +3334,7 @@ jobs:
               @State private var isSearching: Bool = false
 
               @State private var isScrubbing: Bool = false
+              @State private var showSyncOffsetBar: Bool = false
               @State private var scrubTime: TimeInterval = 0
 
               @AppStorage("favorite_videos_json") private var favoriteVideosJSON: String = "[]"
@@ -3509,10 +3597,25 @@ jobs:
 
                                   voiceSelectorMenuForCurrentEngine
 
+                                  // 声音时间轴微调按钮（点击展开/收起 ±0.1s 实时微调栏）
+                                  Button {
+                                      withAnimation(.easeInOut(duration: 0.2)) {
+                                          showSyncOffsetBar.toggle()
+                                      }
+                                  } label: {
+                                      Label("同步: \(dubbingEngine.syncOffsetFormattedLabel)", systemImage: "clock.arrow.2.circlepath")
+                                          .font(.caption)
+                                          .padding(.horizontal, 8)
+                                          .padding(.vertical, 4)
+                                          .background(abs(dubbingEngine.audioSyncOffset) > 0.05 ? Color.pink.opacity(0.16) : Color.secondary.opacity(0.12))
+                                          .foregroundStyle(abs(dubbingEngine.audioSyncOffset) > 0.05 ? .pink : .primary)
+                                          .clipShape(Capsule())
+                                  }
+
                                   Button {
                                       playerController.triggerVideoAirPlayPicker()
                                   } label: {
-                                      Label("视频投屏", systemImage: "airplayvideo")
+                                      Label("画面投屏", systemImage: "airplayvideo")
                                           .font(.caption)
                                           .padding(.horizontal, 8)
                                           .padding(.vertical, 4)
@@ -3533,6 +3636,54 @@ jobs:
                               }
                               .padding(.horizontal, 12)
                               .padding(.vertical, 6)
+                          }
+
+                          // 4.5 可展开的【声音时间轴微调栏】（实时提前/延后配音时间以对齐视频口型或投屏延迟）
+                          if showSyncOffsetBar {
+                              VStack(spacing: 6) {
+                                  HStack(spacing: 8) {
+                                      Label("配音时间微调: \(dubbingEngine.syncOffsetFormattedLabel)", systemImage: "waveform.badge.magnifyingglass")
+                                          .font(.caption.weight(.semibold))
+                                          .foregroundStyle(.primary)
+
+                                      Spacer()
+
+                                      Button("-0.5s") { dubbingEngine.adjustSyncOffset(by: -0.5) }
+                                          .buttonStyle(.bordered)
+                                          .controlSize(.mini)
+
+                                      Button("-0.1s") { dubbingEngine.adjustSyncOffset(by: -0.1) }
+                                          .buttonStyle(.bordered)
+                                          .controlSize(.mini)
+
+                                      Button("0.0s") { dubbingEngine.resetSyncOffset() }
+                                          .buttonStyle(.borderedProminent)
+                                          .tint(.secondary)
+                                          .controlSize(.mini)
+
+                                      Button("+0.1s") { dubbingEngine.adjustSyncOffset(by: 0.1) }
+                                          .buttonStyle(.bordered)
+                                          .controlSize(.mini)
+
+                                      Button("+0.5s") { dubbingEngine.adjustSyncOffset(by: 0.5) }
+                                          .buttonStyle(.bordered)
+                                          .controlSize(.mini)
+                                  }
+
+                                  HStack(spacing: 8) {
+                                      Text("提前 -5s")
+                                          .font(.caption2)
+                                          .foregroundStyle(.secondary)
+                                      Slider(value: $dubbingEngine.audioSyncOffset, in: -5.0...5.0, step: 0.1)
+                                          .tint(.pink)
+                                      Text("延后 +5s")
+                                          .font(.caption2)
+                                          .foregroundStyle(.secondary)
+                                  }
+                              }
+                              .padding(.horizontal, 12)
+                              .padding(.vertical, 6)
+                              .background(Color(.secondarySystemBackground).opacity(0.85))
                           }
 
                           // 5. 四栏工作台切换器
@@ -4167,11 +4318,40 @@ jobs:
                           }
 
                           Section {
+                              VStack(alignment: .leading, spacing: 6) {
+                                  HStack {
+                                      Text("配音时间轴偏移 (声画同步微调)")
+                                      Spacer()
+                                      Text(dubbingEngine.syncOffsetFormattedLabel)
+                                          .foregroundStyle(.pink)
+                                          .bold()
+                                  }
+                                  Slider(value: $dubbingEngine.audioSyncOffset, in: -5.0...5.0, step: 0.1)
+                                  HStack(spacing: 10) {
+                                      Button("提前 0.5s") { dubbingEngine.adjustSyncOffset(by: -0.5) }
+                                          .buttonStyle(.bordered)
+                                          .controlSize(.small)
+                                      Button("提前 0.1s") { dubbingEngine.adjustSyncOffset(by: -0.1) }
+                                          .buttonStyle(.bordered)
+                                          .controlSize(.small)
+                                      Button("归零") { dubbingEngine.resetSyncOffset() }
+                                          .buttonStyle(.bordered)
+                                          .controlSize(.small)
+                                      Button("延后 0.1s") { dubbingEngine.adjustSyncOffset(by: 0.1) }
+                                          .buttonStyle(.bordered)
+                                          .controlSize(.small)
+                                      Button("延后 0.5s") { dubbingEngine.adjustSyncOffset(by: 0.5) }
+                                          .buttonStyle(.bordered)
+                                          .controlSize(.small)
+                                  }
+                              }
                               Toggle("完整读完保护 (不中途掐断上一句)", isOn: $dubbingEngine.preventMidSentenceCutoff)
                               Toggle("长句智能微慢放视频等配音收尾", isOn: $dubbingEngine.autoSlowVideoForLongSpeech)
                                   .disabled(!dubbingEngine.preventMidSentenceCutoff)
                           } header: {
-                              Text("2. 防中断与平稳语速优化")
+                              Text("2. 声音时间微调与防中断同步")
+                          } footer: {
+                              Text("负值（如 -0.3s）使配音比画面提前发声；正值（如 +0.3s）使配音延后发声，可用于精细校准字幕时间轴或无线投屏延迟。")
                           }
 
                           Section {
