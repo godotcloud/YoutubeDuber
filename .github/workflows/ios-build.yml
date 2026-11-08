@@ -1,4 +1,4 @@
-name: iOS Build & Unsigned IPA (Zero-Unzip Standalone Workflow v3.4.1)
+name: iOS Build & Unsigned IPA (Zero-Unzip Standalone Workflow v3.5)
 
 on:
   push:
@@ -28,9 +28,9 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Bootstrap iOS Project Source Files (免解压自动写入完整工程源码 v3.4.1)
+      - name: Bootstrap iOS Project Source Files (免解压自动写入完整工程源码 v3.5)
         run: |
-          echo "正在生成/更新完整 iOS 工程源码 v3.4.1（含上下文感知同传翻译、防黑屏修复与 AVAudioEngine 变调音色引擎）..."
+          echo "正在生成/更新完整 iOS 工程源码 v3.5（含上下文感知同传翻译、防黑屏修复与 AVAudioEngine 变调音色引擎）..."
           mkdir -p YouTubeDubber/Models YouTubeDubber/Services YouTubeDubber/Views
           cat << 'EOF_FILE' > project.yml
           name: YouTubeDubber
@@ -74,8 +74,8 @@ jobs:
               settings:
                 base:
                   PRODUCT_BUNDLE_IDENTIFIER: com.ai.youtubedubber.app
-                  MARKETING_VERSION: "3.4.1"
-                  CURRENT_PROJECT_VERSION: "9"
+                  MARKETING_VERSION: "3.5.0"
+                  CURRENT_PROJECT_VERSION: "10"
                   CODE_SIGN_STYLE: Automatic
                   ENABLE_USER_SCRIPT_SANDBOXING: NO
           EOF_FILE
@@ -99,9 +99,9 @@ jobs:
               <key>CFBundlePackageType</key>
               <string>APPL</string>
               <key>CFBundleShortVersionString</key>
-              <string>3.4.1</string>
+              <string>3.5.0</string>
               <key>CFBundleVersion</key>
-              <string>9</string>
+              <string>10</string>
               <key>UILaunchScreen</key>
               <dict/>
               <key>UIBackgroundModes</key>
@@ -141,7 +141,8 @@ jobs:
               func configureAudioSession() {
                   do {
                       let session = AVAudioSession.sharedInstance()
-                      try session.setCategory(.playback, mode: .moviePlayback, options: [])
+                      // 开启 .mixWithOthers 与 .duckOthers：防止主进程配音与 WKWebView <video> 抢占音频会话导致视频暂停或配音无声，并在配音时由系统自动压低原声
+                      try session.setCategory(.playback, mode: .default, options: [.mixWithOthers, .duckOthers])
                       try session.setActive(true)
                   } catch {
                       print("[AudioSession] 配置失败: \(error.localizedDescription)")
@@ -1112,13 +1113,44 @@ jobs:
                           this.addEventListener('load', function() {
                               try {
                                   const u = this.__ytUrl || '';
-                                  if ((u.includes('/api/timedtext') || u.includes('aisubtitle.hdslb.com')) && this.responseText && this.responseText.length > 20) {
+                                  const respTxt = this.responseText;
+                                  if (u.includes('/api/timedtext') && !u.includes('__yt_internal_tlang') && respTxt && respTxt.length > 20) {
                                       const isZH = u.includes('lang=zh') || u.includes('tlang=zh');
+                                      if (!isZH && !fetchedTlangForBase[u]) {
+                                          fetchedTlangForBase[u] = true;
+                                          const tlangUrl = u + (u.includes('?') ? '&' : '?') + 'tlang=zh-Hans&__yt_internal_tlang=1';
+                                          origFetch(tlangUrl, { credentials: 'include' })
+                                              .then(r => r.text())
+                                              .then(zhBody => {
+                                                  postToNative({
+                                                      event: 'onCaptionsPayload',
+                                                      payload: respTxt,
+                                                      translatedPayload: (zhBody && zhBody.length > 20) ? zhBody : null,
+                                                      isChinese: isZH
+                                                  });
+                                              })
+                                              .catch(() => {
+                                                  postToNative({
+                                                      event: 'onCaptionsPayload',
+                                                      payload: respTxt,
+                                                      translatedPayload: null,
+                                                      isChinese: isZH
+                                                  });
+                                              });
+                                      } else {
+                                          postToNative({
+                                              event: 'onCaptionsPayload',
+                                              payload: respTxt,
+                                              translatedPayload: null,
+                                              isChinese: isZH
+                                          });
+                                      }
+                                  } else if (u.includes('aisubtitle.hdslb.com') && respTxt && respTxt.length > 20) {
                                       postToNative({
                                           event: 'onCaptionsPayload',
-                                          payload: this.responseText,
+                                          payload: respTxt,
                                           translatedPayload: null,
-                                          isChinese: isZH
+                                          isChinese: false
                                       });
                                   }
                               } catch (e) {}
@@ -1126,8 +1158,9 @@ jobs:
                           return origSend.apply(this, arguments);
                       };
 
-                      // 仅对 YouTube 网页注入防遮挡纯净样式：
-                      // 严禁对 .player-container / #movie_player 强加 position:fixed + background:#000（否则 YouTube 动态创建的空 .player-container 图层会盖住 <video> 造成突然黑屏无画面！）
+                      // 仅对 YouTube 网页注入防遮挡且防挤压的纯净全屏样式：
+                      // 1) 隐藏播放器内置字幕图层 (.ytp-caption-window-container / .caption-window) 及推荐侧栏 (ytm-SingleColumnWatchNextResultsRenderer)，彻底解决视频画面被内置字幕挤到一边的问题；
+                      // 2) 强制 .html5-video-container 与 video 使用 position: absolute; top: 0; left: 0; width: 100%; height: 100%，覆盖 YouTube 内联 left 偏移，且不对通用 .player-container 加黑底，彻底杜绝黑屏与画面偏移！
                       let cleanLayoutEnabled = true;
                       function injectCleanCSS() {
                           if (!cleanLayoutEnabled) return;
@@ -1138,38 +1171,72 @@ jobs:
                           style.textContent = `
                               ytm-mobile-topbar-renderer,
                               .mobile-topbar-header,
+                              ytm-SingleColumnWatchNextResultsRenderer,
+                              ytm-single-column-watch-next-results-renderer,
                               ytm-item-section-renderer,
                               ytm-slim-video-metadata-section-renderer,
                               ytm-engagement-panel-section-list-renderer,
+                              ytm-transcript-section-renderer,
                               ytm-companion-slot,
                               ytm-promoted-sparkles-web-renderer,
                               .related-chips-slot-wrapper,
-                              ytm-pivot-bar-renderer {
+                              ytm-pivot-bar-renderer,
+                              .ytp-caption-window-container,
+                              .caption-window,
+                              .ytp-caption-segment,
+                              .ytm-caption-window-container {
                                   display: none !important;
+                                  width: 0 !important;
+                                  height: 0 !important;
+                                  max-width: 0 !important;
+                                  overflow: hidden !important;
+                                  pointer-events: none !important;
                               }
                               html, body {
                                   margin: 0 !important;
                                   padding: 0 !important;
+                                  width: 100vw !important;
+                                  height: 100vh !important;
                                   background: #000 !important;
                                   overflow: hidden !important;
                               }
-                              #player-container-id {
+                              #player-container-id, #movie_player, .html5-video-player {
                                   position: fixed !important;
                                   top: 0 !important;
                                   left: 0 !important;
+                                  right: 0 !important;
+                                  bottom: 0 !important;
                                   width: 100vw !important;
                                   height: 100vh !important;
-                                  z-index: 900 !important;
-                                  background: transparent !important;
+                                  max-width: 100vw !important;
+                                  max-height: 100vh !important;
+                                  margin: 0 !important;
+                                  padding: 0 !important;
+                                  z-index: 9999 !important;
+                                  background: #000 !important;
+                                  overflow: hidden !important;
                               }
-                              #movie_player, .html5-video-player, .html5-video-container {
+                              .html5-video-container {
+                                  position: absolute !important;
+                                  top: 0 !important;
+                                  left: 0 !important;
+                                  right: 0 !important;
+                                  bottom: 0 !important;
                                   width: 100% !important;
                                   height: 100% !important;
-                                  background: transparent !important;
+                                  margin: 0 !important;
+                                  padding: 0 !important;
                               }
                               video.html5-main-video, video {
+                                  position: absolute !important;
+                                  top: 0 !important;
+                                  left: 0 !important;
+                                  right: 0 !important;
+                                  bottom: 0 !important;
                                   width: 100% !important;
                                   height: 100% !important;
+                                  margin: 0 !important;
+                                  padding: 0 !important;
                                   object-fit: contain !important;
                                   visibility: visible !important;
                                   opacity: 1 !important;
@@ -1359,9 +1426,19 @@ jobs:
                           }
                       };
 
+                      // 跟踪用户主动暂停 vs 网页/系统焦点异常引起的自动暂停，彻底解决「播放时不时停止」
+                      let userExplicitlyPaused = false;
+                      let hasStartedPlaying = false;
+                      let lastUserTouchTime = 0;
+
+                      document.addEventListener('touchstart', function() { lastUserTouchTime = Date.now(); }, { passive: true, capture: true });
+                      document.addEventListener('pointerdown', function() { lastUserTouchTime = Date.now(); }, { passive: true, capture: true });
+                      document.addEventListener('click', function() { lastUserTouchTime = Date.now(); }, { passive: true, capture: true });
+
                       window.__seekYT = function(sec) {
                           const v = document.querySelector('video');
                           if (v) {
+                              userExplicitlyPaused = false;
                               v.currentTime = sec;
                               v.play().catch(function(){});
                           }
@@ -1370,13 +1447,20 @@ jobs:
                       window.__toggleYTPlay = function() {
                           const v = document.querySelector('video');
                           if (!v) return;
-                          if (v.paused) v.play().catch(function(){});
-                          else v.pause();
+                          if (v.paused) {
+                              userExplicitlyPaused = false;
+                              v.play().catch(function(){});
+                          } else {
+                              userExplicitlyPaused = true;
+                              v.pause();
+                          }
                       };
 
                       window.__setYTSpeed = function(rate) {
                           const v = document.querySelector('video');
-                          if (v) v.playbackRate = rate;
+                          if (v && Math.abs((v.playbackRate || 1.0) - rate) > 0.03) {
+                              v.playbackRate = rate;
+                          }
                       };
 
                       window.__speakWebKitZH = function(text, lang, rate, pitch) {
@@ -1411,15 +1495,43 @@ jobs:
                               window.scrollTo(0, 0);
                           }
                           trySkipAndBlockVideoAds();
+
+                          // 自动点击 YouTube 偶发弹出的 "Video paused. Continue watching?" 挂机确认框
+                          const youThereBtn = document.querySelector('ytm-you-there-renderer button, .ytp-you-there-button');
+                          if (youThereBtn) {
+                              try { youThereBtn.click(); } catch (e) {}
+                          }
+
                           const v = document.querySelector('video');
                           if (!v) return;
-                          // 仅在首次发现 <video> 元素时设置一次 AirPlay 属性，避免每 120ms 修改 DOM 属性引起 WebKit 视频硬件图层闪黑！
+                          // 仅在首次发现 <video> 元素时绑定一次 AirPlay 属性与防意外暂停守护事件
                           if (!v.__ytAirPlayConfigured) {
                               v.__ytAirPlayConfigured = true;
                               v.disableRemotePlayback = false;
                               v.setAttribute('x-webkit-airplay', 'allow');
                               v.setAttribute('airplay', 'allow');
+                              v.addEventListener('playing', function() {
+                                  hasStartedPlaying = true;
+                                  userExplicitlyPaused = false;
+                              });
+                              v.addEventListener('pause', function() {
+                                  if (Date.now() - lastUserTouchTime < 900) {
+                                      userExplicitlyPaused = true;
+                                  } else if (!v.ended && !v.seeking && hasStartedPlaying && !userExplicitlyPaused) {
+                                      setTimeout(function() {
+                                          if (v.paused && !v.ended && !userExplicitlyPaused) {
+                                              v.play().catch(function(){});
+                                          }
+                                      }, 80);
+                                  }
+                              });
                           }
+
+                          // 若视频已开始播放且非用户主动暂停，遇到意外暂停时自动恢复播放
+                          if (hasStartedPlaying && !userExplicitlyPaused && v.paused && !v.ended && !v.seeking && v.readyState >= 2 && (Date.now() - lastUserTouchTime > 1000)) {
+                              v.play().catch(function(){});
+                          }
+
                           const state = v.ended ? 0 : (v.paused ? 2 : (v.seeking ? 3 : 1));
                           postToNative({
                               event: 'onTimeUpdate',
@@ -2448,12 +2560,6 @@ jobs:
               /// 语法与上下文感知的断句合并器：
               /// 识别英文从句连接词（that / which / because / and / to / of / in / with / the 等）与未完结短句，
               /// 将被时间轴切碎的跨行句子重组为语法完整的上下文语义句
-              /// 语法与上下文感知的断句合并器：
-              /// 识别英文从句连接词（that / which / because / and / to / of / in / with / the 等）与未完结短句，
-              /// 将被时间轴切碎的跨行句子重组为语法完整的上下文语义句
-              /// 语法与上下文感知的断句合并器：
-              /// 识别英文从句连接词（that / which / because / and / to / of / in / with / the 等）与未完结短句，
-              /// 将被时间轴切碎的跨行句子重组为语法完整的上下文语义句
               func mergeShortFragments(_ cues: [SubtitleCue]) -> [SubtitleCue] {
                   guard !cues.isEmpty else { return [] }
 
@@ -2546,6 +2652,8 @@ jobs:
                   return merged
               }
 
+              static var pollinationsCooldownUntil: Date = .distantPast
+
               /// 基于全局主题（视频标题/作者）与前后句滑动窗口语境 (`contextBefore` / `contextAfter`) 进行高质量上下文同传翻译
               func translateBatchToSpokenChinese(
                   cues: [SubtitleCue],
@@ -2556,9 +2664,10 @@ jobs:
                   provider: TranslationProvider,
                   apiKey: String,
                   baseURL: String,
-                  model: String
+                  model: String,
+                  forceContextualUpgrade: Bool = false
               ) async throws -> [UUID: String] {
-                  let untranslated = cues.filter { ($0.translatedZH ?? "").isEmpty }
+                  let untranslated = forceContextualUpgrade ? cues : cues.filter { ($0.translatedZH ?? "").isEmpty }
                   guard !untranslated.isEmpty else { return [:] }
 
                   switch provider {
@@ -2645,12 +2754,13 @@ jobs:
                   videoTitle: String,
                   videoAuthor: String
               ) async -> [UUID: String] {
-                  guard let url = URL(string: "https://text.pollinations.ai/openai") else {
+                  guard Date() >= Self.pollinationsCooldownUntil,
+                        let url = URL(string: "https://text.pollinations.ai/openai") else {
                       return await contextualParagraphGTXTranslate(cues: cues, contextBefore: contextBefore, videoTitle: videoTitle)
                   }
                   var request = URLRequest(url: url)
                   request.httpMethod = "POST"
-                  request.timeoutInterval = 12.0
+                  request.timeoutInterval = 4.2
                   request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
                   let prevText = contextBefore.suffix(2).map {
@@ -2700,6 +2810,7 @@ jobs:
                           return parsed
                       }
                   }
+                  Self.pollinationsCooldownUntil = Date().addingTimeInterval(90)
                   return await contextualParagraphGTXTranslate(cues: cues, contextBefore: contextBefore, videoTitle: videoTitle)
               }
 
@@ -2717,7 +2828,27 @@ jobs:
                       let end = min(start + chunkSize, cues.count)
                       let chunk = Array(cues[start..<end])
 
-                      // 使用不会被打乱的编号分隔符将连续多句拼接为一个连贯段落，让 NMT 利用整段注意力机制翻译
+                      // 1) 极速整段多行神经上下文翻译（单次请求 0.25s 同时传入整段上下文并按行对齐还原）
+                      let multiLine = chunk.map { $0.originalText.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) }.joined(separator: "\n")
+                      if let encoded = multiLine.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                         let url = URL(string: "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-CN&dt=t&q=\(encoded)"),
+                         let (data, _) = try? await URLSession.shared.data(from: url),
+                         let arr = try? JSONSerialization.jsonObject(with: data) as? [Any],
+                         let sentences = arr.first as? [[Any]] {
+                          let fullTranslated = sentences.compactMap { $0.first as? String }.joined()
+                          let lines = fullTranslated
+                              .components(separatedBy: "\n")
+                              .map { $0.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) }
+                              .filter { !$0.isEmpty }
+                          if lines.count == chunk.count {
+                              for (idx, cue) in chunk.enumerated() {
+                                  result[cue.id] = streamlineChineseForSpeech(lines[idx], duration: cue.duration)
+                              }
+                              continue
+                          }
+                      }
+
+                      // 2) 编号锚点整段联译回退
                       let paragraph = chunk.enumerated().map { idx, cue in
                           "(\(idx + 1)) \(cue.originalText.replacingOccurrences(of: "\n", with: " "))"
                       }.joined(separator: "  ")
@@ -2732,26 +2863,6 @@ jobs:
                           if extracted.count == chunk.count {
                               for (idx, cue) in chunk.enumerated() {
                                   result[cue.id] = streamlineChineseForSpeech(extracted[idx], duration: cue.duration)
-                              }
-                              continue
-                          }
-                      }
-
-                      // 回退：多行上下文批量翻译
-                      let multiLine = chunk.map { $0.originalText.replacingOccurrences(of: "\n", with: " ") }.joined(separator: "\n")
-                      if let encoded = multiLine.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-                         let url = URL(string: "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-CN&dt=t&q=\(encoded)"),
-                         let (data, _) = try? await URLSession.shared.data(from: url),
-                         let arr = try? JSONSerialization.jsonObject(with: data) as? [Any],
-                         let sentences = arr.first as? [[Any]] {
-                          let fullTranslated = sentences.compactMap { $0.first as? String }.joined()
-                          let lines = fullTranslated.components(separatedBy: "\n")
-                          if lines.count == chunk.count {
-                              for (idx, cue) in chunk.enumerated() {
-                                  let clean = lines[idx].trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-                                  if !clean.isEmpty {
-                                      result[cue.id] = streamlineChineseForSpeech(clean, duration: cue.duration)
-                                  }
                               }
                               continue
                           }
@@ -2964,7 +3075,7 @@ jobs:
               }
 
               @Published var preventMidSentenceCutoff: Bool = true
-              @Published var autoSlowVideoForLongSpeech: Bool = true
+              @Published var autoSlowVideoForLongSpeech: Bool = false
               @Published var duckedOriginalVolume: Double = 18.0
               @Published var baseSpeechRateMultiplier: Double = 1.02
 
@@ -3008,6 +3119,9 @@ jobs:
               let timePitchNode = AVAudioUnitTimePitch()
               var isPitchEngineConfigured = false
               var playbackGeneration: Int = 0
+              var pausedTickCount: Int = 0
+              static var edgeGatewayCooldownUntil: Date = .distantPast
+              static var openAIFMCooldownUntil: Date = .distantPast
 
               var lastSpokenCueID: UUID?
               var currentlySpeakingCue: SubtitleCue?
@@ -3182,12 +3296,18 @@ jobs:
                   latestAPIKey = apiKey
                   latestTTSBaseURL = ttsBaseURL
 
-                  if playerState != .playing {
-                      if isSpeaking && currentlySpeakingCue?.index != -1 {
+                  // 关键防抖：WebKit 缓冲 (.buffering) 或少于 4 帧 (<0.48s) 的瞬态状态抖动绝不中断正在朗读的配音！
+                  if playerState == .buffering || playerState == .unstarted || playerState == .cued {
+                      return
+                  }
+                  if playerState == .paused || playerState == .ended {
+                      pausedTickCount += 1
+                      if pausedTickCount >= 4 && isSpeaking && currentlySpeakingCue?.index != -1 {
                           stopImmediately()
                       }
                       return
                   }
+                  pausedTickCount = 0
 
                   let effectiveTime = currentTime - audioSyncOffset
 
@@ -3238,6 +3358,9 @@ jobs:
                   }
                   audioPlayer?.stop()
 
+                  // 确保 iOS 系统音频会话处于混音+自动压低原声模式 (.mixWithOthers + .duckOthers)
+                  try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers, .duckOthers])
+                  try? AVAudioSession.sharedInstance().setActive(true)
                   isSpeaking = true
                   onVolumeDuckChange?(Int(duckedOriginalVolume))
 
@@ -3329,12 +3452,24 @@ jobs:
                   }
               }
 
+              /// 严格校验返回的二进制数据是否为真实可解码音频（过滤 Cloudflare HTML / JSON 报错页）
+              static func isValidAudioData(_ data: Data, response: URLResponse?) -> Bool {
+                  guard data.count > 256 else { return false }
+                  if let mime = response?.mimeType?.lowercased() {
+                      if mime.contains("html") || mime.contains("json") || mime.contains("text") || mime.contains("xml") {
+                          return false
+                      }
+                  }
+                  return (try? AVAudioPlayer(data: data)) != nil
+              }
+
               static func downloadFreeOpenAIFMData(text: String, voice: String) async -> Data? {
-                  guard let url = URL(string: "https://www.openai.fm/api/generate") else { return nil }
+                  guard Date() >= openAIFMCooldownUntil,
+                        let url = URL(string: "https://www.openai.fm/api/generate") else { return nil }
                   let boundary = "Boundary-\(UUID().uuidString)"
                   var request = URLRequest(url: url)
                   request.httpMethod = "POST"
-                  request.timeoutInterval = 4.2
+                  request.timeoutInterval = 2.6
                   request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
                   request.setValue("https://www.openai.fm", forHTTPHeaderField: "Origin")
                   request.setValue("https://www.openai.fm/", forHTTPHeaderField: "Referer")
@@ -3359,14 +3494,16 @@ jobs:
                   request.httpBody = body
 
                   if let (data, resp) = try? await URLSession.shared.data(for: request),
-                     let http = resp as? HTTPURLResponse, http.statusCode == 200, data.count > 512 {
+                     let http = resp as? HTTPURLResponse, http.statusCode == 200,
+                     isValidAudioData(data, response: resp) {
                       return data
                   }
+                  openAIFMCooldownUntil = Date().addingTimeInterval(90)
                   return nil
               }
 
               /// 返回 `(data, isFallback)`：若 `isFallback == true`，播放时自动通过 `AVAudioUnitTimePitch` 施加目标音色的专属 `pitchCents`（男声/女声/地域声线），
-              /// 从而保证哪怕在网络受限触发回退时，切换任何音色也能立即听出截然不同的男/女/甜美/沉稳音色效果！
+              /// 并通过熔断器避免失效网关重复等待，确保零延迟响应与鲜明音色差异！
               static func downloadTTSData(
                   text: String,
                   engine: DubbingVoiceEngine,
@@ -3378,15 +3515,18 @@ jobs:
               ) async -> (data: Data, isFallback: Bool)? {
                   switch engine {
                   case .edgeFreeNeuralTTS:
-                      if let encodedText = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                      if Date() >= edgeGatewayCooldownUntil,
+                         let encodedText = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
                          let encodedVoice = edgeVoice.rawValue.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
                          let url = URL(string: "https://tts.travisvn.com/?text=\(encodedText)&voice=\(encodedVoice)") {
                           var req = URLRequest(url: url)
-                          req.timeoutInterval = 3.2
+                          req.timeoutInterval = 1.5
                           if let (data, resp) = try? await URLSession.shared.data(for: req),
-                             let http = resp as? HTTPURLResponse, http.statusCode == 200, data.count > 256 {
+                             let http = resp as? HTTPURLResponse, http.statusCode == 200,
+                             isValidAudioData(data, response: resp) {
                               return (data, false)
                           }
+                          edgeGatewayCooldownUntil = Date().addingTimeInterval(120)
                       }
                       if let gData = await downloadGoogleTTSData(text: text, langCode: edgeVoice.fallbackLangCode) {
                           return (gData, true)
@@ -3490,7 +3630,8 @@ jobs:
                       forHTTPHeaderField: "User-Agent"
                   )
                   if let (data, resp) = try? await URLSession.shared.data(for: request),
-                     let http = resp as? HTTPURLResponse, http.statusCode == 200, data.count > 256 {
+                     let http = resp as? HTTPURLResponse, http.statusCode == 200,
+                     isValidAudioData(data, response: resp) {
                       return data
                   }
                   return nil
@@ -3531,6 +3672,7 @@ jobs:
 
                           setupPitchAudioEngine()
                           if playerNode.isPlaying { playerNode.stop() }
+                          if pitchAudioEngine.isRunning { pitchAudioEngine.stop() }
                           pitchAudioEngine.disconnectNodeOutput(playerNode)
                           pitchAudioEngine.disconnectNodeOutput(timePitchNode)
                           pitchAudioEngine.connect(playerNode, to: timePitchNode, format: buffer.format)
@@ -3539,17 +3681,20 @@ jobs:
                           timePitchNode.pitch = pitchCents
                           timePitchNode.rate = Float(finalRate)
 
-                          if !pitchAudioEngine.isRunning {
-                              try pitchAudioEngine.start()
-                          }
+                          pitchAudioEngine.prepare()
+                          try pitchAudioEngine.start()
 
-                          playerNode.scheduleBuffer(buffer, at: nil, options: .interrupts) { [weak self] in
-                              Task { @MainActor in
-                                  guard let self = self, self.playbackGeneration == generation else { return }
-                                  self.handleUtteranceCompleted()
-                              }
-                          }
+                          // 注意：AVAudioPlayerNode.scheduleBuffer 默认使用 .dataConsumed 回调（会在缓冲区送入渲染管线的 50ms 内提前触发，导致原声立刻恢复且配音被截断！）
+                          // 因此使用确定性的实际播放时长计时器 (durationSec / finalRate) + generation 校验来触发完成事件！
+                          playerNode.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
                           playerNode.play()
+
+                          let actualPlaySeconds = max(0.28, durationSec / finalRate)
+                          Task { @MainActor [weak self] in
+                              try? await Task.sleep(nanoseconds: UInt64(actualPlaySeconds * 1_000_000_000))
+                              guard let self = self, self.playbackGeneration == generation else { return }
+                              self.handleUtteranceCompleted()
+                          }
 
                           let projectedEnd = (latestPlaybackTime - audioSyncOffset) + (durationSec / finalRate)
                           if autoSlowVideoForLongSpeech && cue.index != -1 && projectedEnd > cue.endTime + 0.35 {
@@ -3772,7 +3917,7 @@ jobs:
               @AppStorage("favorite_videos_json") private var favoriteVideosJSON: String = "[]"
               @State private var favorites: [VideoItem] = []
 
-              @AppStorage("translation_provider") private var translationProviderRaw: String = TranslationProvider.pollinationsFreeContextAI.rawValue
+              @AppStorage("translation_provider_v35") private var translationProviderRaw: String = TranslationProvider.googleGTXFree.rawValue
               @AppStorage("openai_api_key") private var apiKey: String = ""
               @AppStorage("openai_base_url") private var baseURL: String = "https://api.openai.com/v1"
               @AppStorage("openai_model") private var llmModel: String = "gpt-4o-mini"
@@ -3839,11 +3984,13 @@ jobs:
                           .padding(.vertical, 8)
                           .background(Color(.secondarySystemBackground))
 
-                          // 2. 16:9 双平台原生内嵌播放器
+                          // 2. 16:9 双平台原生内嵌播放器（固定全宽 16:9 比例并裁剪溢出，防止任何字幕或子视图挤压画面）
                           ZStack(alignment: .bottomTrailing) {
                               YouTubeWebPlayerView(controller: playerController)
+                                  .frame(maxWidth: .infinity)
                                   .aspectRatio(16.0 / 9.0, contentMode: .fit)
                                   .background(Color.black)
+                                  .clipped()
 
                               if dubbingEngine.isSpeaking {
                                   Label("\(dubbingEngine.voiceEngine.shortLabel) · \(dubbingEngine.currentVoiceShortName)", systemImage: "waveform.circle.fill")
@@ -4565,15 +4712,17 @@ jobs:
                   }
 
                   playerController.onStateChange = { state in
-                      if state == .paused || state == .buffering || state == .ended {
+                      // 仅在视频真正结束时立即停止配音；短暂 buffering 或瞬态 pause 由 syncWithPlayback 防抖处理，避免误断配音
+                      if state == .ended {
                           dubbingEngine.stopImmediately()
                       }
                   }
 
                   playerController.onWebViewCaptionsCaptured = { rawPayload, translatedPayload, isChinese in
+                      // 始终保留 YouTube 已返回的 translatedPayload (tlang=zh-Hans) 作为 0 秒即时中文配音种子，再由后台上下文翻译无缝升级！
                       let parsed = transcriptService.parseRawCaptionPayload(
                           rawPayload,
-                          translatedRawText: selectedTranslationProvider == .youtubeBuiltIn ? translatedPayload : nil,
+                          translatedRawText: translatedPayload,
                           alreadyChinese: isChinese
                       )
                       guard !parsed.isEmpty else { return }
@@ -4649,11 +4798,11 @@ jobs:
                   isLoadingCaptions = true
                   statusMessage = "正在提取 \(platform.rawValue) 字幕/弹幕与同作者推荐..."
                   do {
-                      let preferYTBuiltIn = (selectedTranslationProvider == .youtubeBuiltIn)
+                      // 始终请求内置中文字幕种子 (preferYouTubeBuiltInTranslation: true)，确保第 0 秒起即可立刻发声配音，随后再由上下文翻译器后台精修！
                       let result = try await transcriptService.fetchMergedCues(
                           for: videoID,
                           platform: platform,
-                          preferYouTubeBuiltInTranslation: preferYTBuiltIn
+                          preferYouTubeBuiltInTranslation: true
                       )
                       if let title = result.title, !title.isEmpty {
                           playerController.currentTitle = title
@@ -4683,15 +4832,36 @@ jobs:
               }
 
               func translateLoadedCues(_ loadedCues: [SubtitleCue]) async {
-                  let alreadyDoneCount = loadedCues.filter { !($0.translatedZH ?? "").isEmpty }.count
-                  if alreadyDoneCount == loadedCues.count {
-                      statusMessage = "中文配音台词已全部就绪 (\(loadedCues.count) 句)"
+                  guard !loadedCues.isEmpty else { return }
+
+                  // 第 1 阶段（极速破冰）：若前 6 句尚无中文译文，先用 0.25s 的 Google 整段上下文翻译优先译出前 6 句，保证视频一开头就有配音！
+                  let firstEnd = min(6, cues.count)
+                  if firstEnd > 0 {
+                      let firstSlice = Array(cues[0..<firstEnd])
+                      if firstSlice.contains(where: { ($0.translatedZH ?? "").isEmpty }) {
+                          let fastMap = await transcriptService.contextualParagraphGTXTranslate(
+                              cues: firstSlice,
+                              contextBefore: [],
+                              videoTitle: playerController.currentTitle
+                          )
+                          for i in 0..<firstEnd where i < cues.count {
+                              if let zh = fastMap[cues[i].id] {
+                                  cues[i].translatedZH = zh
+                              }
+                          }
+                      }
+                  }
+
+                  let alreadyDoneCount = cues.filter { !($0.translatedZH ?? "").isEmpty }.count
+                  if alreadyDoneCount == cues.count && selectedTranslationProvider == .youtubeBuiltIn {
+                      statusMessage = "中文配音台词已全部就绪 (\(cues.count) 句)"
                       return
                   }
 
-                  statusMessage = "已加载 \(loadedCues.count) 句，正在通过 \(selectedTranslationProvider.shortLabel) 翻译为中文配音..."
-                  // 采用 14 句滑动窗口批次，携带前 3 句上文 (contextBefore)、后 2 句下文 (contextAfter) 以及当前视频标题和作者进行上下文感知翻译
-                  let batchSize = 14
+                  statusMessage = "正在通过 \(selectedTranslationProvider.shortLabel) 进行上下文同传翻译..."
+                  let batchSize = 10
+                  let forceUpgrade = (selectedTranslationProvider != .youtubeBuiltIn)
+
                   for start in stride(from: 0, to: loadedCues.count, by: batchSize) {
                       let end = min(start + batchSize, loadedCues.count)
                       guard end <= cues.count else { return }
@@ -4710,15 +4880,16 @@ jobs:
                           provider: selectedTranslationProvider,
                           apiKey: apiKey,
                           baseURL: baseURL,
-                          model: llmModel
+                          model: llmModel,
+                          forceContextualUpgrade: forceUpgrade
                       ) {
                           for i in start..<end where i < cues.count {
-                              if let zh = translatedMap[cues[i].id] {
+                              if let zh = translatedMap[cues[i].id], !zh.isEmpty {
                                   cues[i].translatedZH = zh
                               }
                           }
                       }
-                      statusMessage = "实时配音就绪 (\(end)/\(loadedCues.count) 句已就绪)"
+                      statusMessage = "实时配音就绪 (\(end)/\(loadedCues.count) 句已通过上下文精译)"
                   }
               }
 
@@ -4910,6 +5081,11 @@ jobs:
                                           .foregroundStyle(.secondary)
                                   }
                                   Slider(value: $dubbingEngine.baseSpeechRateMultiplier, in: 0.9...1.3, step: 0.02)
+                              }
+                              Button {
+                                  dubbingEngine.notifyVoiceOrEngineChanged()
+                              } label: {
+                                  Label("立即试听当前选中音色 (\(dubbingEngine.currentVoiceShortName))", systemImage: "play.wave.2.fill")
                               }
                               Button {
                                   dubbingEngine.notifyVoiceOrEngineChanged()
