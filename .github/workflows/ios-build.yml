@@ -1,4 +1,4 @@
-name: iOS Build & Unsigned IPA (Zero-Unzip Standalone Workflow v3.0)
+name: iOS Build & Unsigned IPA (Zero-Unzip Standalone Workflow v3.2)
 
 on:
   push:
@@ -28,9 +28,9 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Bootstrap iOS Project Source Files (免解压自动写入完整工程源码 v3.0)
+      - name: Bootstrap iOS Project Source Files (免解压自动写入完整工程源码 v3.2)
         run: |
-          echo "正在生成/更新完整 iOS 工程源码 v3.0（YouTube + Bilibili 双平台支持，免解压单 YML 构建模式）..."
+          echo "正在生成/更新完整 iOS 工程源码 v3.2（含 B站 WBI/弹幕字幕配音、OpenAI 音色锁定、双层去广告与 AirPlay 投屏）..."
           mkdir -p YouTubeDubber/Models YouTubeDubber/Services YouTubeDubber/Views
           cat << 'EOF_FILE' > project.yml
           name: YouTubeDubber
@@ -60,8 +60,8 @@ jobs:
                 properties:
                   CFBundleDisplayName: "YTDubber"
                   CFBundleName: "YTDubber"
-                  CFBundleShortVersionString: "3.0.0"
-                  CFBundleVersion: "4"
+                  CFBundleShortVersionString: "3.2.0"
+                  CFBundleVersion: "6"
                   UILaunchScreen: {}
                   UIBackgroundModes:
                     - audio
@@ -74,8 +74,8 @@ jobs:
               settings:
                 base:
                   PRODUCT_BUNDLE_IDENTIFIER: com.ai.youtubedubber.app
-                  MARKETING_VERSION: "3.0.0"
-                  CURRENT_PROJECT_VERSION: "4"
+                  MARKETING_VERSION: "3.2.0"
+                  CURRENT_PROJECT_VERSION: "6"
                   CODE_SIGN_STYLE: Automatic
                   ENABLE_USER_SCRIPT_SANDBOXING: NO
           EOF_FILE
@@ -99,9 +99,9 @@ jobs:
               <key>CFBundlePackageType</key>
               <string>APPL</string>
               <key>CFBundleShortVersionString</key>
-              <string>3.0.0</string>
+              <string>3.2.0</string>
               <key>CFBundleVersion</key>
-              <string>4</string>
+              <string>6</string>
               <key>UILaunchScreen</key>
               <dict/>
               <key>UIBackgroundModes</key>
@@ -138,13 +138,14 @@ jobs:
                   }
               }
 
+              /// 配置混合音频会话：支持 YouTube/Bilibili 原声与实时中文配音混音、自动压低原声 (Ducking) 以及 AirPlay 无线投屏路由
               func configureAudioSession() {
                   do {
                       let session = AVAudioSession.sharedInstance()
                       try session.setCategory(
                           .playback,
-                          mode: .spokenAudio,
-                          options: [.mixWithOthers, .duckOthers]
+                          mode: .moviePlayback,
+                          options: [.mixWithOthers, .duckOthers, .allowAirPlay, .allowBluetoothA2DP]
                       )
                       try session.setActive(true)
                   } catch {
@@ -162,13 +163,6 @@ jobs:
               case bilibili = "Bilibili"
 
               var id: String { rawValue }
-
-              var badgeColorHex: String {
-                  switch self {
-                  case .youtube: return "#FF0000"
-                  case .bilibili: return "#FB7299"
-                  }
-              }
           }
 
           /// 单条时间轴字幕与中文配音状态
@@ -217,7 +211,9 @@ jobs:
 
               var thumbnailURL: URL? {
                   if !customCoverURL.isEmpty {
-                      let normalized = customCoverURL.hasPrefix("//") ? ("https:" + customCoverURL) : customCoverURL
+                      let normalized = customCoverURL.hasPrefix("//")
+                          ? ("https:" + customCoverURL)
+                          : customCoverURL.replacingOccurrences(of: "http://", with: "https://")
                       return URL(string: normalized)
                   }
                   if platform == .youtube {
@@ -260,7 +256,7 @@ jobs:
 
           /// 5 大内置翻译渠道
           enum TranslationProvider: String, CaseIterable, Identifiable {
-              case youtubeBuiltIn = "平台官方内置翻译 (YT tlang / B站AI字幕 免Key)"
+              case youtubeBuiltIn = "平台官方内置翻译 (YT tlang / B站字幕 免Key)"
               case googleGTXFree = "Google 翻译 GTX 批量通道 (免费免Key)"
               case myMemoryFree = "MyMemory 开源翻译网格 (免费免Key备用)"
               case siliconFlowFreeAI = "SiliconFlow 免费 AI 大模型 (Qwen2.5 同传润色)"
@@ -285,7 +281,7 @@ jobs:
               case googleFreeStreamTTS = "Google 免费流式语音 (普通话/国语/粤语·免Key)"
               case applePremiumTTS = "iPhone 原生 AVSpeechSynthesizer (离线零延迟·多音色)"
               case webKitSpeechTTS = "WebKit 浏览器内置语音引擎 (离线多声线·免Key)"
-              case neuralCloudTTS = "AI 大模型云端语音 (CosyVoice2 / OpenAI 多音色)"
+              case neuralCloudTTS = "OpenAI / CosyVoice2 大模型语音 (支持免Key直连)"
 
               var id: String { rawValue }
 
@@ -295,7 +291,7 @@ jobs:
                   case .googleFreeStreamTTS: return "Google流式TTS"
                   case .applePremiumTTS: return "iOS原生语音"
                   case .webKitSpeechTTS: return "WebKit语音"
-                  case .neuralCloudTTS: return "AI大模型TTS"
+                  case .neuralCloudTTS: return "OpenAI/AI语音"
                   }
               }
           }
@@ -442,48 +438,73 @@ jobs:
               }
           }
 
-          /// 模式 5 音色：AI 大模型云端语音
+          /// 模式 5 音色：OpenAI 官方 8 款语音（支持 openai.fm 免 Key 直连或官方 API Key）+ SiliconFlow CosyVoice2 6 款音色
           enum AICloudVoicePreset: String, CaseIterable, Identifiable {
-              case cosyAlex = "FunAudioLLM/CosyVoice2-0.5B:alex"
-              case cosyAnna = "FunAudioLLM/CosyVoice2-0.5B:anna"
-              case cosyBella = "FunAudioLLM/CosyVoice2-0.5B:bella"
-              case cosyBenjamin = "FunAudioLLM/CosyVoice2-0.5B:benjamin"
-              case cosyCharles = "FunAudioLLM/CosyVoice2-0.5B:charles"
-              case cosyClaire = "FunAudioLLM/CosyVoice2-0.5B:claire"
               case openAINova = "nova"
               case openAIAlloy = "alloy"
               case openAIEcho = "echo"
               case openAIShimmer = "shimmer"
+              case openAIOnyx = "onyx"
+              case openAIFable = "fable"
+              case openAICoral = "coral"
+              case openAISage = "sage"
+              case cosyAnna = "FunAudioLLM/CosyVoice2-0.5B:anna"
+              case cosyAlex = "FunAudioLLM/CosyVoice2-0.5B:alex"
+              case cosyBella = "FunAudioLLM/CosyVoice2-0.5B:bella"
+              case cosyBenjamin = "FunAudioLLM/CosyVoice2-0.5B:benjamin"
+              case cosyCharles = "FunAudioLLM/CosyVoice2-0.5B:charles"
+              case cosyClaire = "FunAudioLLM/CosyVoice2-0.5B:claire"
 
               var id: String { rawValue }
 
+              var isOpenAIVoice: Bool {
+                  !rawValue.contains("CosyVoice")
+              }
+
+              var isMaleVoice: Bool {
+                  switch self {
+                  case .openAIEcho, .openAIOnyx, .cosyAlex, .cosyBenjamin, .cosyCharles:
+                      return true
+                  default:
+                      return false
+                  }
+              }
+
               var displayName: String {
                   switch self {
-                  case .cosyAlex: return "CosyVoice2 · Alex (沉稳自然男声)"
-                  case .cosyAnna: return "CosyVoice2 · Anna (知性温柔女声)"
-                  case .cosyBella: return "CosyVoice2 · Bella (甜美清澈女声)"
-                  case .cosyBenjamin: return "CosyVoice2 · Benjamin (磁性纪录片男声)"
-                  case .cosyCharles: return "CosyVoice2 · Charles (专业播音男声)"
-                  case .cosyClaire: return "CosyVoice2 · Claire (轻快活力女声)"
-                  case .openAINova: return "OpenAI · Nova (活力自然女声)"
-                  case .openAIAlloy: return "OpenAI · Alloy (均衡中性音色)"
-                  case .openAIEcho: return "OpenAI · Echo (温和儒雅男声)"
-                  case .openAIShimmer: return "OpenAI · Shimmer (舒缓叙事女声)"
+                  case .openAINova: return "OpenAI · Nova (活力自然女声 · 支持免Key)"
+                  case .openAIAlloy: return "OpenAI · Alloy (均衡中性音色 · 支持免Key)"
+                  case .openAIEcho: return "OpenAI · Echo (温和儒雅男声 · 支持免Key)"
+                  case .openAIShimmer: return "OpenAI · Shimmer (舒缓叙事女声 · 支持免Key)"
+                  case .openAIOnyx: return "OpenAI · Onyx (深沉磁性男声 · 支持免Key)"
+                  case .openAIFable: return "OpenAI · Fable (故事讲述声线 · 支持免Key)"
+                  case .openAICoral: return "OpenAI · Coral (温暖柔和女声 · 支持免Key)"
+                  case .openAISage: return "OpenAI · Sage (知性清晰女声 · 支持免Key)"
+                  case .cosyAnna: return "CosyVoice2 · Anna (知性温柔女声 · 需SiliconFlow Key)"
+                  case .cosyAlex: return "CosyVoice2 · Alex (沉稳自然男声 · 需SiliconFlow Key)"
+                  case .cosyBella: return "CosyVoice2 · Bella (甜美清澈女声 · 需SiliconFlow Key)"
+                  case .cosyBenjamin: return "CosyVoice2 · Benjamin (磁性纪录片男声 · 需SiliconFlow Key)"
+                  case .cosyCharles: return "CosyVoice2 · Charles (专业播音男声 · 需SiliconFlow Key)"
+                  case .cosyClaire: return "CosyVoice2 · Claire (轻快活力女声 · 需SiliconFlow Key)"
                   }
               }
 
               var shortName: String {
                   switch self {
-                  case .cosyAlex: return "Alex(男)"
-                  case .cosyAnna: return "Anna(女)"
-                  case .cosyBella: return "Bella(女)"
-                  case .cosyBenjamin: return "Benjamin(男)"
-                  case .cosyCharles: return "Charles(男)"
-                  case .cosyClaire: return "Claire(女)"
-                  case .openAINova: return "Nova(女)"
-                  case .openAIAlloy: return "Alloy"
-                  case .openAIEcho: return "Echo(男)"
-                  case .openAIShimmer: return "Shimmer(女)"
+                  case .openAINova: return "OpenAI·Nova"
+                  case .openAIAlloy: return "OpenAI·Alloy"
+                  case .openAIEcho: return "OpenAI·Echo"
+                  case .openAIShimmer: return "OpenAI·Shimmer"
+                  case .openAIOnyx: return "OpenAI·Onyx"
+                  case .openAIFable: return "OpenAI·Fable"
+                  case .openAICoral: return "OpenAI·Coral"
+                  case .openAISage: return "OpenAI·Sage"
+                  case .cosyAnna: return "Cosy·Anna"
+                  case .cosyAlex: return "Cosy·Alex"
+                  case .cosyBella: return "Cosy·Bella"
+                  case .cosyBenjamin: return "Cosy·Benjamin"
+                  case .cosyCharles: return "Cosy·Charles"
+                  case .cosyClaire: return "Cosy·Claire"
                   }
               }
           }
@@ -502,8 +523,23 @@ jobs:
           import Foundation
           import WebKit
           import SwiftUI
+          import AVKit
 
-          /// 负责 WKWebView 与 YouTube / Bilibili 双平台原生 HTML5 <video> 播放器及同源字幕拦截器的双向通信
+          /// 原生 iOS AirPlay 无线投屏按钮（封装 AVKit.AVRoutePickerView，支持一键投屏至 Apple TV / 智能电视 / Mac / HomePod）
+          struct AirPlayRoutePickerButton: UIViewRepresentable {
+              func makeUIView(context: Context) -> AVRoutePickerView {
+                  let picker = AVRoutePickerView(frame: CGRect(x: 0, y: 0, width: 32, height: 32))
+                  picker.prioritizesVideoDevices = true
+                  picker.tintColor = UIColor.label
+                  picker.activeTintColor = UIColor.systemRed
+                  picker.backgroundColor = .clear
+                  return picker
+              }
+
+              func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
+          }
+
+          /// 负责 WKWebView 与 YouTube / Bilibili 双平台原生 HTML5 <video> 播放器、广告拦截、无线投屏及同源字幕拦截器的双向通信
           @MainActor
           final class YouTubePlayerController: NSObject, ObservableObject, WKScriptMessageHandler, WKNavigationDelegate {
               @Published var currentPlatform: VideoPlatform = .youtube
@@ -521,23 +557,29 @@ jobs:
               @Published var relatedVideos: [VideoItem] = []
               @Published var isCleanPlayerLayout: Bool = true
 
+              // 广告屏蔽状态与拦截计数
+              @Published var isAdBlockEnabled: Bool = true {
+                  didSet {
+                      let flag = isAdBlockEnabled ? "true" : "false"
+                      evaluateJS("window.__setAdBlockEnabled && window.__setAdBlockEnabled(\(flag));")
+                  }
+              }
+              @Published var blockedAdsCount: Int = 0
+
               weak var webView: WKWebView?
               var onTimeTick: ((TimeInterval, YTPlayerState) -> Void)?
               var onStateChange: ((YTPlayerState) -> Void)?
               var onWebViewCaptionsCaptured: ((String, String?, Bool) -> Void)?
               var onWebKitSpeechEnded: (() -> Void)?
 
-              /// 智能识别输入字符串（支持 YouTube 链接/ID、Bilibili 链接/BV号、以及包含 b23.tv 短链或 BV 号的分享文本）
               static func parseInput(_ input: String) async -> (platform: VideoPlatform, videoID: String)? {
                   let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
                   guard !trimmed.isEmpty else { return nil }
 
-                  // 1. 直接匹配文本中的 BV 号 (BV + 10位字母数字)
                   if let bvMatch = extractBVID(from: trimmed) {
                       return (.bilibili, bvMatch)
                   }
 
-                  // 2. 若包含 b23.tv 短链接，先请求重定向后的真实 URL 再提取 BV 号
                   if let b23URL = extractFirstURL(from: trimmed),
                      let host = b23URL.host?.lowercased(),
                      host.contains("b23.tv") {
@@ -546,7 +588,6 @@ jobs:
                       }
                   }
 
-                  // 3. 解析常规 YouTube URL 或 11 位 Video ID
                   if let ytID = extractYouTubeID(from: trimmed) {
                       return (.youtube, ytID)
                   }
@@ -633,10 +674,10 @@ jobs:
                       request.setValue("https://m.youtube.com/", forHTTPHeaderField: "Referer")
                       webView?.load(request)
                   case .bilibili:
-                      // 使用 Bilibili 官方 HTML5 高清无弹窗内嵌播放器页 + 移动端视频页支持
-                      guard let url = URL(string: "https://www.bilibili.com/blackboard/html5mobileplayer.html?bvid=\(id)&high_quality=1&danmaku=0&autoplay=1") else { return }
+                      // 直接加载 m.bilibili.com 视频详情页，既支持完整的同源字幕/弹幕请求，又能通过注入 CSS 全屏化 HTML5 <video>
+                      guard let url = URL(string: "https://m.bilibili.com/video/\(id)") else { return }
                       var request = URLRequest(url: url)
-                      request.setValue("https://www.bilibili.com/video/\(id)", forHTTPHeaderField: "Referer")
+                      request.setValue("https://m.bilibili.com/", forHTTPHeaderField: "Referer")
                       webView?.load(request)
                   }
               }
@@ -645,6 +686,11 @@ jobs:
                   isCleanPlayerLayout.toggle()
                   let flag = isCleanPlayerLayout ? "true" : "false"
                   evaluateJS("window.__setCleanLayout && window.__setCleanLayout(\(flag));")
+              }
+
+              /// 触发 HTML5 <video> 原生 AirPlay 视频无线投屏选择器
+              func triggerVideoAirPlayPicker() {
+                  evaluateJS("window.__triggerAirPlay && window.__triggerAirPlay();")
               }
 
               func setOriginalVolume(_ volume: Int) {
@@ -729,6 +775,8 @@ jobs:
                           self.playerState = state
                           self.onStateChange?(state)
                       }
+                  case "onAdSkipped":
+                      self.blockedAdsCount += 1
                   case "onWebKitSpeechEnded":
                       self.onWebKitSpeechEnded?()
                   case "onCaptionsPayload":
@@ -781,7 +829,7 @@ jobs:
               }
           }
 
-          /// SwiftUI 封装的 YouTube + Bilibili 双平台网页播放器
+          /// SwiftUI 封装的 YouTube + Bilibili 双平台网页播放器（内置 WKContentRuleList 广告拦截与 AirPlay 支持）
           struct YouTubeWebPlayerView: UIViewRepresentable {
               @ObservedObject var controller: YouTubePlayerController
 
@@ -796,9 +844,23 @@ jobs:
                   )
                   contentController.addUserScript(bridgeScript)
 
+                  // 编译并挂载 WebKit 原生网络层与 CSS 层广告拦截规则 (WKContentRuleList)
+                  WKContentRuleListStore.default().compileContentRuleList(
+                      forIdentifier: "YTDubberAdBlockRules",
+                      encodedContentRuleList: Self.adBlockRulesJSON()
+                  ) { ruleList, _ in
+                      if let ruleList = ruleList {
+                          Task { @MainActor in
+                              contentController.add(ruleList)
+                          }
+                      }
+                  }
+
                   let config = WKWebViewConfiguration()
                   config.userContentController = contentController
                   config.allowsInlineMediaPlayback = true
+                  config.allowsAirPlayForMediaPlayback = true
+                  config.allowsPictureInPictureMediaPlayback = true
                   config.mediaTypesRequiringUserActionForPlayback = []
 
                   let webView = WKWebView(frame: .zero, configuration: config)
@@ -815,11 +877,35 @@ jobs:
 
               func updateUIView(_ uiView: WKWebView, context: Context) {}
 
+              /// WebKit 原生网络与 DOM 广告屏蔽规则 (同时拦截 YouTube DoubleClick/PageAd 与 Bilibili 广告域名及横幅)
+              static func adBlockRulesJSON() -> String {
+                  """
+                  [
+                    {
+                      "trigger": { "url-filter": ".*(doubleclick\\.net|googlesyndication\\.com|googleadservices\\.com|youtube\\.com/api/stats/ads|youtube\\.com/pagead/|youtube\\.com/get_midroll_|cm\\.bilibili\\.com).*" },
+                      "action": { "type": "block" }
+                    },
+                    {
+                      "trigger": { "url-filter": ".*" },
+                      "action": {
+                        "type": "css-display-none",
+                        "selector": ".video-ads, .ytp-ad-module, .ytp-ad-overlay-container, .ytp-ad-message-container, ytm-promoted-sparkles-web-renderer, ytm-promoted-video-renderer, ytm-companion-ad-renderer, .ad-report, .bili-dyn-ad, .m-video-openapp, .open-app-btn, .m-navbar"
+                      }
+                    }
+                  ]
+                  """
+              }
+
               static func injectedBridgeJS() -> String {
                   """
                   (function() {
                       if (window.__ytDubberInjected) return;
                       window.__ytDubberInjected = true;
+
+                      let adBlockEnabled = true;
+                      window.__setAdBlockEnabled = function(enabled) {
+                          adBlockEnabled = !!enabled;
+                      };
 
                       function postToNative(payload) {
                           try {
@@ -829,7 +915,7 @@ jobs:
                           } catch (e) {}
                       }
 
-                      // 1. 同时拦截 YouTube (/api/timedtext) 与 Bilibili (aisubtitle.hdslb.com / /x/player/wbi/v2) 字幕请求
+                      // 1. 拦截 YouTube (/api/timedtext) 与 Bilibili (aisubtitle.hdslb.com / /x/player/wbi/v2) 字幕请求
                       const origFetch = window.fetch;
                       let fetchedTlangForBase = {};
                       window.fetch = async function(...args) {
@@ -897,7 +983,6 @@ jobs:
                                           isChinese: isZH
                                       });
                                   } else if (u.includes('/x/player/wbi/v2') || u.includes('/x/player/v2')) {
-                                      // B站播放器字幕列表响应：若包含 subtitle_url，自动拉取第一个字幕文件
                                       const json = JSON.parse(this.responseText);
                                       const subs = json && json.data && json.data.subtitle && json.data.subtitle.subtitles;
                                       if (subs && subs.length > 0 && subs[0].subtitle_url) {
@@ -905,12 +990,11 @@ jobs:
                                           if (subUrl.startsWith('//')) subUrl = 'https:' + subUrl;
                                           origFetch(subUrl).then(r => r.text()).then(t => {
                                               if (t && t.length > 20) {
-                                                  const lan = (subs[0].lan || '').toLowerCase();
                                                   postToNative({
                                                       event: 'onCaptionsPayload',
                                                       payload: t,
                                                       translatedPayload: null,
-                                                      isChinese: lan.includes('zh')
+                                                      isChinese: false
                                                   });
                                               }
                                           }).catch(function(){});
@@ -921,7 +1005,7 @@ jobs:
                           return origSend.apply(this, arguments);
                       };
 
-                      // 2. 注入纯净播放器样式（同时兼容 YouTube 与 Bilibili 播放器）
+                      // 2. 注入纯净播放器样式（全面适配 m.youtube.com 与 m.bilibili.com）
                       let cleanLayoutEnabled = true;
                       function injectCleanCSS() {
                           if (!cleanLayoutEnabled) return;
@@ -937,13 +1021,17 @@ jobs:
                               ytm-slim-video-metadata-section-renderer,
                               ytm-engagement-panel-section-list-renderer,
                               ytm-companion-slot,
+                              ytm-promoted-sparkles-web-renderer,
                               .related-chips-slot-wrapper,
                               .m-navbar,
                               .m-video-info-new,
                               .m-video-part-new,
+                              .m-video2-awaken-btn,
                               .launch-app-btn,
                               .open-app-bar,
-                              .bili-app-link-btn {
+                              .bili-app-link-btn,
+                              .m-footer,
+                              .card-box {
                                   display: none !important;
                               }
                               html, body {
@@ -952,7 +1040,7 @@ jobs:
                                   background: #000 !important;
                                   overflow: hidden !important;
                               }
-                              #player-container-id, .player-container, #movie_player, .bilibili-player, #bilibiliPlayer {
+                              #player-container-id, .player-container, #movie_player, .m-video-player, .player-wrapper, .bilibili-player {
                                   position: fixed !important;
                                   top: 0 !important;
                                   left: 0 !important;
@@ -972,15 +1060,77 @@ jobs:
                           if (!cleanLayoutEnabled && el) el.remove();
                       };
 
+                      // 3. 动态贴片广告跳过器：自动点击「跳过广告」按钮并将不可跳过贴片广告静音快进到结尾
+                      function trySkipAndBlockVideoAds() {
+                          if (!adBlockEnabled) return;
+                          try {
+                              const skipSelectors = [
+                                  '.ytp-ad-skip-button',
+                                  '.ytp-ad-skip-button-modern',
+                                  '.ytp-skip-ad-button',
+                                  '.ytp-ad-overlay-close-button',
+                                  'button[class*="ad-skip"]'
+                              ];
+                              for (const sel of skipSelectors) {
+                                  const btn = document.querySelector(sel);
+                                  if (btn) {
+                                      btn.click();
+                                      postToNative({ event: 'onAdSkipped' });
+                                  }
+                              }
+
+                              const moviePlayer = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+                              const isAdShowing = moviePlayer && (moviePlayer.classList.contains('ad-showing') || moviePlayer.classList.contains('ad-interrupting'));
+                              if (isAdShowing) {
+                                  const v = document.querySelector('video');
+                                  if (v && isFinite(v.duration) && v.duration > 0 && v.currentTime < v.duration - 0.2) {
+                                      v.muted = true;
+                                      v.currentTime = v.duration;
+                                      postToNative({ event: 'onAdSkipped' });
+                                  }
+                              }
+                          } catch (e) {}
+                      }
+
                       document.addEventListener('DOMContentLoaded', function() {
                           injectCleanCSS();
                           setTimeout(extractCaptionsAndMetadataFromPage, 1000);
-                          setTimeout(extractCaptionsAndMetadataFromPage, 3000);
+                          setTimeout(extractCaptionsAndMetadataFromPage, 2800);
                       });
 
+                      // 4. 在同源页面内提取 YouTube 或 Bilibili 的字幕轨道与视频信息
                       let captionsSentForVideo = null;
                       async function extractCaptionsAndMetadataFromPage() {
                           try {
+                              // A. 检查是否为 Bilibili 页面 (`window.__INITIAL_STATE__`)
+                              if (window.location.hostname.includes('bilibili.com') && window.__INITIAL_STATE__) {
+                                  const st = window.__INITIAL_STATE__;
+                                  const vData = st.videoData || (st.reduxAsyncConnect && st.reduxAsyncConnect.videoInfo) || {};
+                                  const bvid = vData.bvid || st.bvid || '';
+                                  const cid = vData.cid || (vData.pages && vData.pages[0] && vData.pages[0].cid) || 0;
+                                  if (bvid && cid && captionsSentForVideo !== bvid) {
+                                      const pResp = await origFetch('https://api.bilibili.com/x/player/wbi/v2?bvid=' + bvid + '&cid=' + cid, { credentials: 'include' });
+                                      const pJson = await pResp.json();
+                                      const subs = pJson && pJson.data && pJson.data.subtitle && pJson.data.subtitle.subtitles;
+                                      if (subs && subs.length > 0 && subs[0].subtitle_url) {
+                                          let subUrl = subs[0].subtitle_url;
+                                          if (subUrl.startsWith('//')) subUrl = 'https:' + subUrl;
+                                          const subRes = await origFetch(subUrl);
+                                          const subTxt = await subRes.text();
+                                          if (subTxt && subTxt.length > 20) {
+                                              captionsSentForVideo = bvid;
+                                              postToNative({
+                                                  event: 'onCaptionsPayload',
+                                                  payload: subTxt,
+                                                  translatedPayload: null,
+                                                  isChinese: false
+                                              });
+                                          }
+                                      }
+                                  }
+                              }
+
+                              // B. 检查是否为 YouTube 页面 (`window.ytInitialPlayerResponse`)
                               const pr = window.ytInitialPlayerResponse
                                   || (window.ytplayer && window.ytplayer.config && window.ytplayer.config.args && window.ytplayer.config.args.raw_player_response);
                               if (pr && pr.videoDetails) {
@@ -1091,6 +1241,8 @@ jobs:
 
                       function ensureAudioGain(video) {
                           try {
+                              video.setAttribute('airplay', 'allow');
+                              video.setAttribute('x-webkit-airplay', 'allow');
                               if (hookedVideo === video && gainNode) return;
                               const Ctx = window.AudioContext || window.webkitAudioContext;
                               if (!Ctx) return;
@@ -1103,6 +1255,13 @@ jobs:
                               hookedVideo = video;
                           } catch (e) {}
                       }
+
+                      window.__triggerAirPlay = function() {
+                          const v = document.querySelector('video');
+                          if (v && v.webkitShowPlaybackTargetPicker) {
+                              v.webkitShowPlaybackTargetPicker();
+                          }
+                      };
 
                       window.__setYTVolume = function(vol) {
                           const ratio = Math.max(0.0, Math.min(1.0, vol / 100.0));
@@ -1145,7 +1304,7 @@ jobs:
                               window.speechSynthesis.cancel();
                               const u = new SpeechSynthesisUtterance(text);
                               u.lang = lang || 'zh-CN';
-                              u.rate = Math.max(0.85, Math.min(1.55, rate || 1.08));
+                              u.rate = Math.max(0.85, Math.min(1.35, rate || 1.02));
                               u.pitch = Math.max(0.75, Math.min(1.3, pitch || 1.0));
                               u.onend = function() {
                                   postToNative({ event: 'onWebKitSpeechEnded' });
@@ -1167,8 +1326,10 @@ jobs:
 
                       setInterval(function() {
                           injectCleanCSS();
+                          trySkipAndBlockVideoAds();
                           const v = document.querySelector('video');
                           if (!v) return;
+                          v.setAttribute('x-webkit-airplay', 'allow');
                           const state = v.ended ? 0 : (v.paused ? 2 : (v.seeking ? 3 : 1));
                           postToNative({
                               event: 'onTimeUpdate',
@@ -1177,7 +1338,7 @@ jobs:
                               playbackRate: v.playbackRate || 1.0,
                               state: state
                           });
-                      }, 100);
+                      }, 120);
                   })();
                   """
               }
@@ -1185,8 +1346,9 @@ jobs:
           EOF_FILE
           cat << 'EOF_FILE' > YouTubeDubber/Services/TranscriptAndTranslationService.swift
           import Foundation
+          import CryptoKit
 
-          /// 负责 YouTube + Bilibili 双平台字幕获取、视频搜索、同作者/UP主推荐以及多源免费翻译
+          /// 负责 YouTube + Bilibili 双平台字幕获取（含 B站 WBI 签名 CC 字幕与 Zlib 实时弹幕流解析）、视频搜索、同作者推荐及多源免费翻译
           struct TranscriptAndTranslationService: Sendable {
               struct CaptionTrackInfo: Sendable {
                   let baseUrl: String
@@ -1202,10 +1364,28 @@ jobs:
                   var errorDescription: String? {
                       switch self {
                       case .videoPageFetchFailed: return "无法连接视频字幕服务，请检查网络"
-                      case .noCaptionsAvailable: return "该视频暂未提供外挂/AI字幕轨道"
+                      case .noCaptionsAvailable: return "该视频暂未提供字幕或弹幕轨道"
                       case .captionParseFailed: return "正在等待播放器加载同源字幕轨道..."
                       }
                   }
+              }
+
+              /// 判断一段文本是否已经是纯中文（汉字占比 >= 45% 且不含连续长英文单词），若含外语则必须交给翻译引擎翻译为中文
+              static func isMostlyChinese(_ text: String) -> Bool {
+                  let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                  guard !trimmed.isEmpty else { return false }
+                  // 若包含 2 个以上连续 3 字母以上的英文单词，判定为需要翻译成中文的外语/双语字幕
+                  if let enRegex = try? NSRegularExpression(pattern: "[a-zA-Z]{3,}\\s+[a-zA-Z]{3,}", options: []),
+                     enRegex.firstMatch(in: trimmed, options: [], range: NSRange(location: 0, length: (trimmed as NSString).length)) != nil {
+                      return false
+                  }
+                  var hanCount = 0
+                  for scalar in trimmed.unicodeScalars {
+                      if (0x4E00...0x9FFF).contains(scalar.value) {
+                          hanCount += 1
+                      }
+                  }
+                  return Double(hanCount) / Double(max(1, trimmed.count)) >= 0.35
               }
 
               // MARK: - 双平台视频关键词搜索 (YouTube & Bilibili)
@@ -1220,7 +1400,6 @@ jobs:
                   }
               }
 
-              /// YouTube 关键词搜索（基于 InnerTube `/youtubei/v1/search`，免 API Key）
               func searchYouTubeVideos(keyword: String) async -> [VideoItem] {
                   var collected: [VideoItem] = []
                   guard let url = URL(string: "https://www.youtube.com/youtubei/v1/search?prettyPrint=false") else {
@@ -1247,24 +1426,25 @@ jobs:
                   return collected
               }
 
-              /// Bilibili 关键词搜索（自动获取 buvid3 指纹 Cookie 后调用 `/x/web-interface/search/type?search_type=video`）
-              func searchBilibiliVideos(keyword: String) async -> [VideoItem] {
-                  guard let encoded = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-                        let searchURL = URL(string: "https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=\(encoded)&page=1") else {
-                      return []
-                  }
-
-                  // 先获取 Bilibili 匿名指纹 Cookie (buvid3/buvid4) 避免 -412 拦截
-                  var buvidCookie = "buvid3=INFOC;"
+              func fetchBilibiliBuvidCookie() async -> String {
                   if let spiURL = URL(string: "https://api.bilibili.com/x/frontend/finger/spi"),
                      let (spiData, _) = try? await URLSession.shared.data(from: spiURL),
                      let spiJSON = try? JSONSerialization.jsonObject(with: spiData) as? [String: Any],
                      let dataDict = spiJSON["data"] as? [String: Any],
                      let b3 = dataDict["b_3"] as? String {
                       let b4 = (dataDict["b_4"] as? String) ?? ""
-                      buvidCookie = "buvid3=\(b3); buvid4=\(b4);"
+                      return "buvid3=\(b3); buvid4=\(b4);"
+                  }
+                  return "buvid3=INFOC;"
+              }
+
+              func searchBilibiliVideos(keyword: String) async -> [VideoItem] {
+                  guard let encoded = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                        let searchURL = URL(string: "https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=\(encoded)&page=1") else {
+                      return []
                   }
 
+                  let buvidCookie = await fetchBilibiliBuvidCookie()
                   var req = URLRequest(url: searchURL)
                   req.setValue("https://search.bilibili.com/", forHTTPHeaderField: "Referer")
                   req.setValue(
@@ -1319,17 +1499,19 @@ jobs:
                   }
               }
 
-              // MARK: - Bilibili 字幕、详情与同 UP 主/相关推荐提取
+              // MARK: - Bilibili 字幕（WBI 签名 CC/AI 字幕 + Zlib 实时弹幕字幕提取）、详情与同 UP 主推荐
               func fetchBilibiliMergedCues(for bvid: String) async throws -> (cues: [SubtitleCue], title: String?, author: String?, channelID: String?, coverURL: String?, channelVideos: [VideoItem]) {
                   guard let viewURL = URL(string: "https://api.bilibili.com/x/web-interface/view?bvid=\(bvid)") else {
                       throw TranscriptError.videoPageFetchFailed
                   }
+                  let buvidCookie = await fetchBilibiliBuvidCookie()
                   var req = URLRequest(url: viewURL)
                   req.setValue("https://www.bilibili.com/video/\(bvid)", forHTTPHeaderField: "Referer")
                   req.setValue(
-                      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+                      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
                       forHTTPHeaderField: "User-Agent"
                   )
+                  req.setValue(buvidCookie, forHTTPHeaderField: "Cookie")
 
                   let (data, response) = try await URLSession.shared.data(for: req)
                   guard let http = response as? HTTPURLResponse, http.statusCode == 200,
@@ -1341,78 +1523,238 @@ jobs:
                   let title = (dataDict["title"] as? String) ?? bvid
                   let desc = (dataDict["desc"] as? String) ?? ""
                   let pic = (dataDict["pic"] as? String) ?? ""
-                  let cid = (dataDict["cid"] as? Int) ?? 0
+                  let aid = (dataDict["aid"] as? Int) ?? 0
+                  let cid = (dataDict["cid"] as? Int) ?? ((dataDict["pages"] as? [[String: Any]])?.first?["cid"] as? Int) ?? 0
                   let owner = dataDict["owner"] as? [String: Any]
                   let author = (owner?["name"] as? String) ?? "Bilibili UP主"
                   let mid = String((owner?["mid"] as? Int) ?? 0)
 
-                  // 并发获取 B 站相关推荐与同 UP 主视频
                   let relatedVideos = await fetchBilibiliRelatedVideos(bvid: bvid, currentAuthor: author)
 
-                  // 1. 先检查 view 接口内嵌的 data.subtitle.list
+                  // 通道 1：检查 view 接口返回的 data.subtitle.list
                   var subtitleTracks: [[String: Any]] = []
                   if let subObj = dataDict["subtitle"] as? [String: Any],
                      let list = subObj["list"] as? [[String: Any]], !list.isEmpty {
                       subtitleTracks.append(contentsOf: list)
                   }
 
-                  // 2. 再查询 /x/player/v2 接口获取 CC / AI 字幕列表
-                  if subtitleTracks.isEmpty && cid > 0,
-                     let playerURL = URL(string: "https://api.bilibili.com/x/player/v2?bvid=\(bvid)&cid=\(cid)") {
-                      var pReq = URLRequest(url: playerURL)
-                      pReq.setValue("https://www.bilibili.com/video/\(bvid)", forHTTPHeaderField: "Referer")
-                      if let (pData, _) = try? await URLSession.shared.data(for: pReq),
-                         let pRoot = try? JSONSerialization.jsonObject(with: pData) as? [String: Any],
-                         let pDataDict = pRoot["data"] as? [String: Any],
-                         let pSub = pDataDict["subtitle"] as? [String: Any],
-                         let pList = pSub["subtitles"] as? [[String: Any]], !pList.isEmpty {
-                          subtitleTracks.append(contentsOf: pList)
+                  // 通道 2：使用 WBI 签名请求 `/x/player/wbi/v2` 与 `/x/player/v2` 获取 CC / AI 字幕轨道
+                  if subtitleTracks.isEmpty && cid > 0 {
+                      let signedQuery = await buildBilibiliWBIQuery(params: [
+                          "aid": "\(aid)",
+                          "bvid": bvid,
+                          "cid": "\(cid)"
+                      ], cookie: buvidCookie)
+
+                      let endpoints = [
+                          "https://api.bilibili.com/x/player/wbi/v2?\(signedQuery)",
+                          "https://api.bilibili.com/x/player/v2?bvid=\(bvid)&cid=\(cid)"
+                      ]
+                      for ep in endpoints where subtitleTracks.isEmpty {
+                          if let playerURL = URL(string: ep) {
+                              var pReq = URLRequest(url: playerURL)
+                              pReq.setValue("https://www.bilibili.com/video/\(bvid)", forHTTPHeaderField: "Referer")
+                              pReq.setValue(buvidCookie, forHTTPHeaderField: "Cookie")
+                              if let (pData, _) = try? await URLSession.shared.data(for: pReq),
+                                 let pRoot = try? JSONSerialization.jsonObject(with: pData) as? [String: Any],
+                                 let pDataDict = pRoot["data"] as? [String: Any],
+                                 let pSub = pDataDict["subtitle"] as? [String: Any],
+                                 let pList = pSub["subtitles"] as? [[String: Any]], !pList.isEmpty {
+                                  subtitleTracks.append(contentsOf: pList)
+                              }
+                          }
                       }
                   }
 
-                  // 3. 若找到 B 站 CC/AI 字幕 URL，下载并解析 JSON
+                  // 若找到 B 站 CC/AI 字幕 URL，下载并解析 JSON
                   for track in subtitleTracks {
                       guard var subURLStr = (track["subtitle_url"] as? String), !subURLStr.isEmpty else { continue }
                       if subURLStr.hasPrefix("//") {
                           subURLStr = "https:" + subURLStr
                       }
-                      let lan = ((track["lan"] as? String) ?? "").lowercased()
-                      let isZH = lan.contains("zh")
                       if let subURL = URL(string: subURLStr),
                          let (subData, _) = try? await URLSession.shared.data(from: subURL),
-                         let cues = try? parseBilibiliSubtitleJSON(data: subData, alreadyChinese: isZH),
+                         let cues = try? parseBilibiliSubtitleJSON(data: subData),
                          !cues.isEmpty {
                           return (mergeShortFragments(cues), title, author, mid, pic, relatedVideos)
                       }
                   }
 
-                  // 4. 若该 B 站视频未上传外挂 CC 字幕，根据视频标题与简介构建语音导读时间轴（同时等待 WebView 内部拦截器捕获 AI 字幕）
-                  var introCues: [SubtitleCue] = [
+                  // 通道 3（核心兜底）：若视频未挂载 CC 字幕或需登录才下发 AI 字幕，自动拉取 B 站免登录全片实时弹幕流 (`dm/list.so?oid=<cid>`)！
+                  // 优先提取野生字幕君的底部/顶部字幕弹幕 (mode 4/5) 及时间轴高权重解说弹幕，并支持将英文/日文弹幕翻译为中文配音！
+                  if cid > 0 {
+                      let dmCues = await fetchBilibiliDanmakuCues(cid: cid, bvid: bvid)
+                      if !dmCues.isEmpty {
+                          return (dmCues, title, author, mid, pic, relatedVideos)
+                      }
+                  }
+
+                  // 通道 4：若连弹幕也为空，使用标题与简介分句构建时间轴
+                  var fallbackCues: [SubtitleCue] = [
                       SubtitleCue(
                           index: 0,
                           startTime: 0.5,
-                          duration: 5.5,
-                          originalText: "正在播放哔哩哔哩视频：\(title)，UP主：\(author)。",
-                          translatedZH: "正在播放哔哩哔哩视频：\(title)，UP主：\(author)。"
+                          duration: 4.5,
+                          originalText: title,
+                          translatedZH: Self.isMostlyChinese(title) ? streamlineChineseForSpeech(title, duration: 4.5) : nil
                       )
                   ]
                   let cleanDesc = desc.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
                   if !cleanDesc.isEmpty && cleanDesc != "-" {
-                      introCues.append(
+                      let parts = cleanDesc.components(separatedBy: CharacterSet(charactersIn: "。！？.!?"))
+                          .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                          .filter { $0.count >= 4 }
+                      var t: TimeInterval = 5.5
+                      for (idx, part) in parts.prefix(15).enumerated() {
+                          let dur = max(3.0, min(6.5, Double(part.count) / 3.8))
+                          fallbackCues.append(
+                              SubtitleCue(
+                                  index: idx + 1,
+                                  startTime: t,
+                                  duration: dur,
+                                  originalText: part,
+                                  translatedZH: Self.isMostlyChinese(part) ? streamlineChineseForSpeech(part, duration: dur) : nil
+                              )
+                          )
+                          t += dur + 0.4
+                      }
+                  }
+                  return (fallbackCues, title, author, mid, pic, relatedVideos)
+              }
+
+              /// 计算 Bilibili WBI 签名 (`w_rid` 与 `wts`)
+              func buildBilibiliWBIQuery(params: [String: String], cookie: String) async -> String {
+                  let mixinKeyEncTab = [
+                      46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49,
+                      33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40,
+                      61, 26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11,
+                      36, 20, 34, 44, 52
+                  ]
+                  var rawWbiKey = "7cd084941338484aae1ad9425b84077c4932caff0ff746eab6f01bf08b70ac45"
+                  if let navURL = URL(string: "https://api.bilibili.com/x/web-interface/nav") {
+                      var req = URLRequest(url: navURL)
+                      req.setValue(cookie, forHTTPHeaderField: "Cookie")
+                      if let (data, _) = try? await URLSession.shared.data(for: req),
+                         let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                         let dataObj = json["data"] as? [String: Any],
+                         let wbiImg = dataObj["wbi_img"] as? [String: Any],
+                         let imgUrl = wbiImg["img_url"] as? String,
+                         let subUrl = wbiImg["sub_url"] as? String {
+                          let imgKey = URL(fileURLWithPath: imgUrl).deletingPathExtension().lastPathComponent
+                          let subKey = URL(fileURLWithPath: subUrl).deletingPathExtension().lastPathComponent
+                          if (imgKey + subKey).count >= 64 {
+                              rawWbiKey = imgKey + subKey
+                          }
+                      }
+                  }
+
+                  let chars = Array(rawWbiKey)
+                  let mixinKey = String(mixinKeyEncTab.compactMap { $0 < chars.count ? chars[$0] : nil }.prefix(32))
+                  let wts = String(Int(Date().timeIntervalSince1970))
+                  var merged = params
+                  merged["wts"] = wts
+
+                  let query = merged.keys.sorted().compactMap { key -> String? in
+                      guard let val = merged[key],
+                            let ek = key.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                            let ev = val.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
+                      return "\(ek)=\(ev)"
+                  }.joined(separator: "&")
+
+                  let toHash = query + mixinKey
+                  let digest = Insecure.MD5.hash(data: Data(toHash.utf8))
+                  let wRid = digest.map { String(format: "%02x", $0) }.joined()
+                  return "\(query)&w_rid=\(wRid)"
+              }
+
+              /// 拉取并解压 Bilibili 实时弹幕 XML (`https://api.bilibili.com/x/v1/dm/list.so?oid=<cid>`)，
+              /// 提取字幕君弹幕与时间轴弹幕，支持外语弹幕翻译与全片同步配音！
+              func fetchBilibiliDanmakuCues(cid: Int, bvid: String) async -> [SubtitleCue] {
+                  guard let url = URL(string: "https://api.bilibili.com/x/v1/dm/list.so?oid=\(cid)") else {
+                      return []
+                  }
+                  var req = URLRequest(url: url)
+                  req.setValue("https://www.bilibili.com/video/\(bvid)", forHTTPHeaderField: "Referer")
+                  guard let (rawData, _) = try? await URLSession.shared.data(for: req), !rawData.isEmpty else {
+                      return []
+                  }
+
+                  // Bilibili list.so 使用 raw deflate (zlib) 压缩，使用 NSData.decompressed(using: .zlib) 原生解压
+                  let xmlString: String
+                  if let decompressed = try? (rawData as NSData).decompressed(using: .zlib) as Data,
+                     let str = String(data: decompressed, encoding: .utf8) {
+                      xmlString = str
+                  } else if let str = String(data: rawData, encoding: .utf8) {
+                      xmlString = str
+                  } else {
+                      return []
+                  }
+
+                  guard let regex = try? NSRegularExpression(
+                      pattern: "<d\\s+p=\"([^\"]+)\">([\\s\\S]*?)</d>",
+                      options: []
+                  ) else {
+                      return []
+                  }
+
+                  struct RawDanmaku {
+                      let time: TimeInterval
+                      let mode: Int
+                      let text: String
+                  }
+
+                  let ns = xmlString as NSString
+                  let matches = regex.matches(in: xmlString, options: [], range: NSRange(location: 0, length: ns.length))
+                  var allItems: [RawDanmaku] = []
+
+                  for m in matches {
+                      guard m.numberOfRanges >= 3 else { continue }
+                      let pAttr = ns.substring(with: m.range(at: 1))
+                      let parts = pAttr.components(separatedBy: ",")
+                      guard let t = Double(parts.first ?? ""), t >= 0 else { continue }
+                      let mode = parts.count > 1 ? (Int(parts[1]) ?? 1) : 1
+                      let rawText = decodeHTMLEntities(ns.substring(with: m.range(at: 2)))
+                          .replacingOccurrences(of: "\n", with: " ")
+                          .trimmingCharacters(in: .whitespacesAndNewlines)
+                      // 过滤纯符号或刷屏短词
+                      guard rawText.count >= 3,
+                            !rawText.hasPrefix("2333"),
+                            !rawText.hasPrefix("666"),
+                            !rawText.hasPrefix("哈哈哈") else { continue }
+                      allItems.append(RawDanmaku(time: t, mode: mode, text: rawText))
+                  }
+
+                  guard !allItems.isEmpty else { return [] }
+                  allItems.sort { $0.time < $1.time }
+
+                  // 优先检查是否有丰富的底部/顶部「野生字幕君」弹幕 (mode == 4 || mode == 5)
+                  let subtitleStyled = allItems.filter { $0.mode == 4 || $0.mode == 5 }
+                  let sourcePool = subtitleStyled.count >= 12 ? subtitleStyled : allItems
+
+                  // 按至少 3.6 秒的时间窗口去重聚合，避免弹幕过于密集导致抢话
+                  var cues: [SubtitleCue] = []
+                  var lastEndTime: TimeInterval = -1.0
+
+                  for item in sourcePool {
+                      guard item.time >= lastEndTime - 0.1 else { continue }
+                      let estDur = max(2.8, min(6.0, Double(item.text.count) / 3.8))
+                      let isZH = Self.isMostlyChinese(item.text)
+                      cues.append(
                           SubtitleCue(
-                              index: 1,
-                              startTime: 6.5,
-                              duration: 8.0,
-                              originalText: "视频简介：\(String(cleanDesc.prefix(120)))",
-                              translatedZH: "视频简介：\(String(cleanDesc.prefix(120)))"
+                              index: cues.count,
+                              startTime: item.time,
+                              duration: estDur,
+                              originalText: item.text,
+                              translatedZH: isZH ? streamlineChineseForSpeech(item.text, duration: estDur) : nil
                           )
                       )
+                      lastEndTime = item.time + estDur
                   }
-                  return (introCues, title, author, mid, pic, relatedVideos)
+                  return cues
               }
 
               /// 解析 Bilibili `aisubtitle.hdslb.com` 字幕 JSON 格式 (`{"body":[{"from":0.5,"to":2.8,"content":"..."}]}`)
-              func parseBilibiliSubtitleJSON(data: Data, alreadyChinese: Bool) throws -> [SubtitleCue] {
+              func parseBilibiliSubtitleJSON(data: Data) throws -> [SubtitleCue] {
                   guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                         let body = root["body"] as? [[String: Any]], !body.isEmpty else {
                       throw TranscriptError.captionParseFailed
@@ -1424,16 +1766,15 @@ jobs:
                       guard let content = item["content"] as? String else { continue }
                       let clean = content.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
                       guard !clean.isEmpty else { continue }
-                      // 检测内容是否已包含中文字符
-                      let containsChinese = clean.range(of: "\\p{Han}", options: .regularExpression) != nil
-                      let isZH = alreadyChinese || containsChinese
+                      let dur = max(0.8, toSec - fromSec)
+                      let isZH = Self.isMostlyChinese(clean)
                       cues.append(
                           SubtitleCue(
                               index: idx,
                               startTime: fromSec,
-                              duration: max(0.8, toSec - fromSec),
+                              duration: dur,
                               originalText: clean,
-                              translatedZH: isZH ? clean : nil
+                              translatedZH: isZH ? streamlineChineseForSpeech(clean, duration: dur) : nil
                           )
                       )
                   }
@@ -1534,11 +1875,9 @@ jobs:
                   throw TranscriptError.captionParseFailed
               }
 
-              /// 解析由 WKWebView 同源拦截器捕获到的原始字幕（自动识别 YouTube JSON3 / XML 与 Bilibili `body` JSON）
               func parseRawCaptionPayload(_ rawText: String, translatedRawText: String?, alreadyChinese: Bool) -> [SubtitleCue] {
                   guard let data = rawText.data(using: .utf8) else { return [] }
-                  // 优先检测是否为 Bilibili 字幕 JSON (`{"body":[{"from":...,"to":...,"content":...}]}`)
-                  if let biliCues = try? parseBilibiliSubtitleJSON(data: data, alreadyChinese: alreadyChinese), !biliCues.isEmpty {
+                  if let biliCues = try? parseBilibiliSubtitleJSON(data: data), !biliCues.isEmpty {
                       return mergeShortFragments(biliCues)
                   }
 
@@ -1558,7 +1897,7 @@ jobs:
                               let targetStart = baseCues[i].startTime
                               if let matched = zhCues.min(by: { abs($0.startTime - targetStart) < abs($1.startTime - targetStart) }),
                                  abs(matched.startTime - targetStart) < 1.5 {
-                                  baseCues[i].translatedZH = matched.originalText
+                                  baseCues[i].translatedZH = streamlineChineseForSpeech(matched.originalText, duration: baseCues[i].duration)
                               }
                           }
                       }
@@ -1802,7 +2141,7 @@ jobs:
                                   let start = baseCues[i].startTime
                                   if let matched = zhCues.min(by: { abs($0.startTime - start) < abs($1.startTime - start) }),
                                      abs(matched.startTime - start) < 1.5 {
-                                      baseCues[i].translatedZH = matched.originalText
+                                      baseCues[i].translatedZH = streamlineChineseForSpeech(matched.originalText, duration: baseCues[i].duration)
                                   }
                               }
                           }
@@ -1838,12 +2177,14 @@ jobs:
                       }
 
                       let decoded = decodeHTMLEntities(combinedText)
+                      let dur = max(0.8, dDurationMs / 1000.0)
+                      let isZH = alreadyChinese && Self.isMostlyChinese(decoded)
                       let cue = SubtitleCue(
                           index: idx,
                           startTime: tStartMs / 1000.0,
-                          duration: max(0.8, dDurationMs / 1000.0),
+                          duration: dur,
                           originalText: decoded,
-                          translatedZH: alreadyChinese ? decoded : nil
+                          translatedZH: isZH ? streamlineChineseForSpeech(decoded, duration: dur) : nil
                       )
                       result.append(cue)
                       idx += 1
@@ -1872,13 +2213,14 @@ jobs:
                           guard !clean.isEmpty, clean != "[Music]" else { continue }
                           let start = Double(startStr) ?? 0
                           let dur = max(0.8, Double(durStr) ?? 2.5)
+                          let isZH = alreadyChinese && Self.isMostlyChinese(clean)
                           result.append(
                               SubtitleCue(
                                   index: idx,
                                   startTime: start,
                                   duration: dur,
                                   originalText: clean,
-                                  translatedZH: alreadyChinese ? clean : nil
+                                  translatedZH: isZH ? streamlineChineseForSpeech(clean, duration: dur) : nil
                               )
                           )
                           idx += 1
@@ -1904,13 +2246,15 @@ jobs:
                               .replacingOccurrences(of: "\n", with: " ")
                               .trimmingCharacters(in: .whitespacesAndNewlines)
                           guard !clean.isEmpty, clean != "[Music]" else { continue }
+                          let dur = max(0.8, dMs / 1000.0)
+                          let isZH = alreadyChinese && Self.isMostlyChinese(clean)
                           result.append(
                               SubtitleCue(
                                   index: idx,
                                   startTime: tMs / 1000.0,
-                                  duration: max(0.8, dMs / 1000.0),
+                                  duration: dur,
                                   originalText: clean,
-                                  translatedZH: alreadyChinese ? clean : nil
+                                  translatedZH: isZH ? streamlineChineseForSpeech(clean, duration: dur) : nil
                               )
                           )
                           idx += 1
@@ -1931,6 +2275,45 @@ jobs:
                      .replacingOccurrences(of: "&lt;", with: "<")
                      .replacingOccurrences(of: "&gt;", with: ">")
                      .replacingOccurrences(of: "&#x27;", with: "'")
+              }
+
+              func streamlineChineseForSpeech(_ text: String, duration: TimeInterval) -> String {
+                  var s = text
+                      .replacingOccurrences(of: "（[^）]*）", with: "", options: .regularExpression)
+                      .replacingOccurrences(of: "\\([^\\)]*\\)", with: "", options: .regularExpression)
+                      .replacingOccurrences(of: "\\[[^\\]]*\\]", with: "", options: .regularExpression)
+                      .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                  let charsPerSec = Double(s.count) / max(1.0, duration)
+                  guard charsPerSec > 4.0 else { return s.isEmpty ? text : s }
+
+                  let conciseReplacements: [(String, String)] = [
+                      ("在这个视频中", "这里"),
+                      ("在这一期视频里", "这里"),
+                      ("正如你所看到的", "可以看到"),
+                      ("正如我们所看到的", "可以看到"),
+                      ("换句话说就是", "也就是说"),
+                      ("换句话说", "也就是"),
+                      ("从某种意义上来说", "其实"),
+                      ("在很大程度上", "很大程度"),
+                      ("我们需要做的是", "我们要"),
+                      ("一件非常重要的事情是", "重要的是"),
+                      ("非常非常", "非常"),
+                      ("事实上，", "其实"),
+                      ("事实上", "其实"),
+                      ("与此同时，", "同时"),
+                      ("与此同时", "同时"),
+                      ("接下来我们要看的是", "接下来看"),
+                      ("如果你仔细观察的话", "仔细看"),
+                      ("我的意思是说", "我是说"),
+                      ("这也就意味着", "这意味着"),
+                      ("不言而喻的是", "显然"),
+                      ("毫无疑问的是", "显然")
+                  ]
+                  for (verbose, concise) in conciseReplacements {
+                      s = s.replacingOccurrences(of: verbose, with: concise)
+                  }
+                  return s.isEmpty ? text : s
               }
 
               func mergeShortFragments(_ cues: [SubtitleCue]) -> [SubtitleCue] {
@@ -2051,7 +2434,9 @@ jobs:
                       if lines.count == cues.count {
                           for (idx, cue) in cues.enumerated() {
                               let clean = lines[idx].trimmingCharacters(in: .whitespacesAndNewlines)
-                              if !clean.isEmpty { result[cue.id] = clean }
+                              if !clean.isEmpty {
+                                  result[cue.id] = streamlineChineseForSpeech(clean, duration: cue.duration)
+                              }
                           }
                           return result
                       }
@@ -2067,7 +2452,7 @@ jobs:
                          let sentences = arr.first as? [[Any]] {
                           let translated = sentences.compactMap { $0.first as? String }.joined()
                           if !translated.isEmpty {
-                              result[cue.id] = translated
+                              result[cue.id] = streamlineChineseForSpeech(translated, duration: cue.duration)
                           }
                       }
                   }
@@ -2086,7 +2471,7 @@ jobs:
                          let respData = json["responseData"] as? [String: Any],
                          let translated = respData["translatedText"] as? String,
                          !translated.isEmpty {
-                          result[cue.id] = translated
+                          result[cue.id] = streamlineChineseForSpeech(translated, duration: cue.duration)
                       }
                   }
                   return result
@@ -2155,39 +2540,83 @@ jobs:
           import Foundation
           import AVFAudio
 
-          /// 多通道实时中文配音调度与合成引擎（含完整句子防打断队列、提前音频预加载缓存与全模式音色选择）
+          /// 多通道实时中文配音调度与合成引擎（含 OpenAI 免 Key 直连、音色持久化锁死与 EMA 平稳语速控制）
           @MainActor
           final class RealtimeChineseDubbingEngine: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegate {
               @Published var isDubbingEnabled: Bool = true
               @Published var activeCueID: UUID?
               @Published var isSpeaking: Bool = false
 
-              // 5 大配音引擎与各自对应的音色配置
-              @Published var voiceEngine: DubbingVoiceEngine = .edgeFreeNeuralTTS
-              @Published var edgeVoice: EdgeChineseVoice = .xiaoxiao
-              @Published var googleVoicePreset: GoogleVoicePreset = .mandarinStandard
-              @Published var selectedAppleVoiceIdentifier: String = ""
-              @Published var applePitchStyle: AppleVoicePitchStyle = .natural
-              @Published var webKitVoicePreset: WebKitVoicePreset = .zhCNStandard
-              @Published var aiCloudVoicePreset: AICloudVoicePreset = .cosyAnna
+              // 5 大配音引擎与各自对应的音色配置（全部持久化保存，绝不自动跳回默认音色）
+              @Published var voiceEngine: DubbingVoiceEngine = {
+                  if let saved = UserDefaults.standard.string(forKey: "dubber_voice_engine"),
+                     let v = DubbingVoiceEngine(rawValue: saved) { return v }
+                  return .edgeFreeNeuralTTS
+              }() {
+                  didSet { UserDefaults.standard.set(voiceEngine.rawValue, forKey: "dubber_voice_engine") }
+              }
 
-              // 防打断与同步增强开关
+              @Published var edgeVoice: EdgeChineseVoice = {
+                  if let saved = UserDefaults.standard.string(forKey: "dubber_edge_voice"),
+                     let v = EdgeChineseVoice(rawValue: saved) { return v }
+                  return .xiaoxiao
+              }() {
+                  didSet { UserDefaults.standard.set(edgeVoice.rawValue, forKey: "dubber_edge_voice") }
+              }
+
+              @Published var googleVoicePreset: GoogleVoicePreset = {
+                  if let saved = UserDefaults.standard.string(forKey: "dubber_google_voice"),
+                     let v = GoogleVoicePreset(rawValue: saved) { return v }
+                  return .mandarinStandard
+              }() {
+                  didSet { UserDefaults.standard.set(googleVoicePreset.rawValue, forKey: "dubber_google_voice") }
+              }
+
+              @Published var selectedAppleVoiceIdentifier: String = UserDefaults.standard.string(forKey: "dubber_apple_voice_id") ?? "" {
+                  didSet { UserDefaults.standard.set(selectedAppleVoiceIdentifier, forKey: "dubber_apple_voice_id") }
+              }
+
+              @Published var applePitchStyle: AppleVoicePitchStyle = {
+                  if let saved = UserDefaults.standard.string(forKey: "dubber_apple_pitch"),
+                     let v = AppleVoicePitchStyle(rawValue: saved) { return v }
+                  return .natural
+              }() {
+                  didSet { UserDefaults.standard.set(applePitchStyle.rawValue, forKey: "dubber_apple_pitch") }
+              }
+
+              @Published var webKitVoicePreset: WebKitVoicePreset = {
+                  if let saved = UserDefaults.standard.string(forKey: "dubber_webkit_voice"),
+                     let v = WebKitVoicePreset(rawValue: saved) { return v }
+                  return .zhCNStandard
+              }() {
+                  didSet { UserDefaults.standard.set(webKitVoicePreset.rawValue, forKey: "dubber_webkit_voice") }
+              }
+
+              @Published var aiCloudVoicePreset: AICloudVoicePreset = {
+                  if let saved = UserDefaults.standard.string(forKey: "dubber_ai_voice"),
+                     let v = AICloudVoicePreset(rawValue: saved) { return v }
+                  return .openAINova
+              }() {
+                  didSet { UserDefaults.standard.set(aiCloudVoicePreset.rawValue, forKey: "dubber_ai_voice") }
+              }
+
               @Published var preventMidSentenceCutoff: Bool = true
               @Published var autoSlowVideoForLongSpeech: Bool = true
               @Published var duckedOriginalVolume: Double = 18.0
-              @Published var baseSpeechRateMultiplier: Double = 1.08
+              @Published var baseSpeechRateMultiplier: Double = 1.02
 
               let synthesizer = AVSpeechSynthesizer()
               var audioPlayer: AVAudioPlayer?
               var lastSpokenCueID: UUID?
               var currentlySpeakingCue: SubtitleCue?
               var pendingCue: SubtitleCue?
+              var pendingNextCueStartTime: TimeInterval?
               var latestPlaybackTime: TimeInterval = 0
               var latestVideoRate: Double = 1.0
               var latestAPIKey: String = ""
               var latestTTSBaseURL: String = ""
 
-              // 提前预加载缓存：存储即将到来的字幕音频，消除网络请求造成的起音滞后
+              var smoothedSpeechSpeed: Double = 1.02
               var prefetchedAudioCache: [String: Data] = [:]
               var prefetchingKeys: Set<String> = []
 
@@ -2199,12 +2628,11 @@ jobs:
               override init() {
                   super.init()
                   synthesizer.delegate = self
-                  if let best = Self.selectBestChineseVoice() {
+                  if selectedAppleVoiceIdentifier.isEmpty, let best = Self.selectBestChineseVoice() {
                       selectedAppleVoiceIdentifier = best.identifier
                   }
               }
 
-              /// 当前模式下选中的音色简短名称（用于主界面工具栏展示）
               var currentVoiceShortName: String {
                   switch voiceEngine {
                   case .edgeFreeNeuralTTS:
@@ -2235,10 +2663,11 @@ jobs:
                   self.onWebKitStop = webKitStop
               }
 
-              /// 用户手动拖动进度条、切换视频或暂停时立即清空队列并停止发声
               func stopImmediately() {
                   pendingCue = nil
+                  pendingNextCueStartTime = nil
                   currentlySpeakingCue = nil
+                  smoothedSpeechSpeed = baseSpeechRateMultiplier
                   if synthesizer.isSpeaking {
                       synthesizer.stopSpeaking(at: .immediate)
                   }
@@ -2265,7 +2694,42 @@ jobs:
                   }
               }
 
-              /// 播放器每 100ms 时间同步入口
+              private func computeSmoothSpeed(for cue: SubtitleCue, nextCueStartTime: TimeInterval?, actualAudioSeconds: Double? = nil) -> Double {
+                  let zhText = cue.translatedZH ?? ""
+                  let estimatedAudioSec = actualAudioSeconds ?? max(1.2, Double(zhText.count) / 4.2)
+
+                  let interCueGap: TimeInterval
+                  if let nextStart = nextCueStartTime, nextStart > cue.endTime {
+                      interCueGap = min(1.2, nextStart - cue.endTime)
+                  } else {
+                      interCueGap = 0.25
+                  }
+
+                  let naturalSpan = max(1.8, (cue.duration + interCueGap) / max(0.6, latestVideoRate))
+                  let rawRatio = (estimatedAudioSec / naturalSpan) * baseSpeechRateMultiplier
+
+                  let startLag = max(0.0, latestPlaybackTime - cue.startTime)
+                  let gentleCatchUp = startLag > 0.4 ? min(0.05, startLag * 0.04) : 0.0
+
+                  let minAllowed = max(0.92, baseSpeechRateMultiplier * 0.96)
+                  let maxAllowed = min(1.22, baseSpeechRateMultiplier * 1.15)
+                  let clampedTarget = min(maxAllowed, max(minAllowed, rawRatio + gentleCatchUp))
+
+                  let blended = smoothedSpeechSpeed * 0.65 + clampedTarget * 0.35
+                  let maxStep = 0.04
+                  let stepLimited: Double
+                  if blended > smoothedSpeechSpeed + maxStep {
+                      stepLimited = smoothedSpeechSpeed + maxStep
+                  } else if blended < smoothedSpeechSpeed - maxStep {
+                      stepLimited = smoothedSpeechSpeed - maxStep
+                  } else {
+                      stepLimited = blended
+                  }
+
+                  smoothedSpeechSpeed = min(maxAllowed, max(minAllowed, stepLimited))
+                  return smoothedSpeechSpeed
+              }
+
               func syncWithPlayback(
                   currentTime: TimeInterval,
                   playerState: YTPlayerState,
@@ -2288,7 +2752,6 @@ jobs:
                       return
                   }
 
-                  // 提前 0.18s 匹配字幕以抵消音频硬件启动耗时
                   guard let currentIdx = cues.firstIndex(where: {
                       currentTime >= ($0.startTime - 0.18) && currentTime < $0.endTime
                   }) else {
@@ -2296,38 +2759,32 @@ jobs:
                   }
 
                   let currentCue = cues[currentIdx]
+                  let nextStart: TimeInterval? = (currentIdx + 1 < cues.count) ? cues[currentIdx + 1].startTime : nil
                   activeCueID = currentCue.id
 
-                  // 后台提前预加载接下来 2 句的在线 TTS 音频，使得切入下一句时 0ms 延迟直接播放！
                   prefetchUpcomingCues(fromIndex: currentIdx, in: cues, apiKey: apiKey, baseURL: ttsBaseURL)
 
                   guard lastSpokenCueID != currentCue.id else { return }
                   guard let zhText = currentCue.translatedZH, !zhText.isEmpty else { return }
 
-                  // 核心优化：如果上一句正在朗读且开启了「完整读完不中断保护」
                   if isSpeaking && preventMidSentenceCutoff {
-                      // 若还没有落后太多（落后不超过 5.5 秒），将新句排入 pendingCue 队列等待上一句自然读完后无缝衔接！
-                      if let activeSpeaking = currentlySpeakingCue,
-                         currentTime - activeSpeaking.endTime < 5.5 {
-                          pendingCue = currentCue
-                          // 若开启了智能视频微慢放协同，临时将视频速率降为 0.78x 给当前长句留出收尾时间
-                          if autoSlowVideoForLongSpeech {
-                              onTempSpeedFactorChange?(0.78)
-                          }
-                          return
+                      pendingCue = currentCue
+                      pendingNextCueStartTime = nextStart
+                      if autoSlowVideoForLongSpeech {
+                          onTempSpeedFactorChange?(0.84)
                       }
+                      return
                   }
 
-                  startSpeakingCue(currentCue)
+                  startSpeakingCue(currentCue, nextCueStartTime: nextStart)
               }
 
-              private func startSpeakingCue(_ cue: SubtitleCue) {
+              private func startSpeakingCue(_ cue: SubtitleCue, nextCueStartTime: TimeInterval?) {
                   guard let zhText = cue.translatedZH, !zhText.isEmpty else { return }
                   lastSpokenCueID = cue.id
                   currentlySpeakingCue = cue
                   pendingCue = nil
-
-                  let remainingWindow = max(1.0, (cue.endTime - latestPlaybackTime) / max(0.5, latestVideoRate))
+                  pendingNextCueStartTime = nil
 
                   if synthesizer.isSpeaking {
                       synthesizer.stopSpeaking(at: .immediate)
@@ -2337,51 +2794,46 @@ jobs:
                   isSpeaking = true
                   onVolumeDuckChange?(Int(duckedOriginalVolume))
 
-                  let charCount = Double(zhText.count)
-                  let estimatedSeconds = max(1.0, charCount / 4.2)
-                  // 计算自适应语速：当句较长或接续较晚时适度提速 (最高 1.42x)，既读完句子又不拖慢节奏
-                  let adaptiveSpeed = min(1.42, max(0.95, (estimatedSeconds / remainingWindow) * baseSpeechRateMultiplier))
+                  let smoothSpeed = computeSmoothSpeed(for: cue, nextCueStartTime: nextCueStartTime)
 
                   switch voiceEngine {
                   case .edgeFreeNeuralTTS:
                       Task {
-                          await speakViaEdgeFreeNeuralTTS(cue: cue, text: zhText, speed: adaptiveSpeed, targetDuration: remainingWindow)
+                          await speakViaEdgeFreeNeuralTTS(cue: cue, nextCueStartTime: nextCueStartTime, text: zhText, speed: smoothSpeed)
                       }
                   case .googleFreeStreamTTS:
                       Task {
-                          await speakViaGoogleFreeTTS(cue: cue, text: zhText, speed: adaptiveSpeed, targetDuration: remainingWindow)
+                          await speakViaGoogleFreeTTS(cue: cue, nextCueStartTime: nextCueStartTime, text: zhText, speed: smoothSpeed)
                       }
                   case .applePremiumTTS:
-                      speakViaAppleNeuralVoice(text: zhText, adaptiveSpeed: adaptiveSpeed)
+                      speakViaAppleNeuralVoice(text: zhText, smoothSpeed: smoothSpeed)
                   case .webKitSpeechTTS:
-                      onWebKitSpeak?(zhText, webKitVoicePreset.lang, adaptiveSpeed, webKitVoicePreset.pitch)
+                      onWebKitSpeak?(zhText, webKitVoicePreset.lang, smoothSpeed, webKitVoicePreset.pitch)
                   case .neuralCloudTTS:
-                      if !latestAPIKey.trimmingCharacters(in: .whitespaces).isEmpty {
-                          Task {
-                              await speakViaCloudNeuralTTS(
-                                  cue: cue,
-                                  text: zhText,
-                                  speed: adaptiveSpeed,
-                                  targetDuration: remainingWindow,
-                                  apiKey: latestAPIKey,
-                                  baseURL: latestTTSBaseURL
-                              )
-                          }
-                      } else {
-                          Task {
-                              await speakViaEdgeFreeNeuralTTS(cue: cue, text: zhText, speed: adaptiveSpeed, targetDuration: remainingWindow)
-                          }
+                      // 修复：无论是否填写 API Key，始终走 speakViaCloudNeuralTTS（支持 openai.fm 免 Key 真实 OpenAI 音色，绝不强行篡改用户的音色选择！）
+                      Task {
+                          await speakViaCloudNeuralTTS(
+                              cue: cue,
+                              nextCueStartTime: nextCueStartTime,
+                              text: zhText,
+                              speed: smoothSpeed,
+                              apiKey: latestAPIKey,
+                              baseURL: latestTTSBaseURL
+                          )
                       }
                   }
               }
 
-              /// 当一句配音自然播放完毕时调用：若队列中有等待的 `pendingCue`，立即无缝衔接播放！
               func handleUtteranceCompleted() {
                   if let next = pendingCue {
+                      let nextStart = pendingNextCueStartTime
                       pendingCue = nil
-                      // 若该待播句尚未过期超过 3.5 秒，立即播报它
-                      if latestPlaybackTime < next.endTime + 3.5 {
-                          startSpeakingCue(next)
+                      pendingNextCueStartTime = nil
+
+                      let lagFromStart = latestPlaybackTime - next.startTime
+                      let remainingInCue = next.endTime - latestPlaybackTime
+                      if lagFromStart <= 1.8 && remainingInCue >= 0.8 {
+                          startSpeakingCue(next, nextCueStartTime: nextStart)
                           return
                       }
                   }
@@ -2391,7 +2843,6 @@ jobs:
                   onTempSpeedFactorChange?(1.0)
               }
 
-              // MARK: - 提前预加载下两句音频缓存 (消除网络 TTS 延迟导致的尾音截断)
               private func cacheKey(for cueID: UUID) -> String {
                   "\(cueID.uuidString)|\(voiceEngine.rawValue)|\(currentVoiceShortName)"
               }
@@ -2430,6 +2881,43 @@ jobs:
                   }
               }
 
+              /// 免费免 Key 调用 OpenAI.fm 官方演播室接口 (`https://www.openai.fm/api/generate`) 生成真实的 OpenAI 音色 (`nova`, `alloy`, `echo`, `shimmer`, `onyx`, `fable`, `coral`, `sage`)
+              static func downloadFreeOpenAIFMData(text: String, voice: String) async -> Data? {
+                  guard let url = URL(string: "https://www.openai.fm/api/generate") else { return nil }
+                  let boundary = "Boundary-\(UUID().uuidString)"
+                  var request = URLRequest(url: url)
+                  request.httpMethod = "POST"
+                  request.timeoutInterval = 4.5
+                  request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+                  request.setValue("https://www.openai.fm", forHTTPHeaderField: "Origin")
+                  request.setValue("https://www.openai.fm/", forHTTPHeaderField: "Referer")
+                  request.setValue(
+                      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+                      forHTTPHeaderField: "User-Agent"
+                  )
+
+                  var body = Data()
+                  let fields: [(String, String)] = [
+                      ("input", text),
+                      ("voice", voice),
+                      ("prompt", "Voice Affect: Natural, fluent, clear Mandarin Chinese narrator."),
+                      ("generation", UUID().uuidString)
+                  ]
+                  for (k, v) in fields {
+                      body.append("--\(boundary)\r\n".data(using: .utf8)!)
+                      body.append("Content-Disposition: form-data; name=\"\(k)\"\r\n\r\n".data(using: .utf8)!)
+                      body.append("\(v)\r\n".data(using: .utf8)!)
+                  }
+                  body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+                  request.httpBody = body
+
+                  if let (data, resp) = try? await URLSession.shared.data(for: request),
+                     let http = resp as? HTTPURLResponse, http.statusCode == 200, data.count > 512 {
+                      return data
+                  }
+                  return nil
+              }
+
               static func downloadTTSData(
                   text: String,
                   engine: DubbingVoiceEngine,
@@ -2457,27 +2945,79 @@ jobs:
                       return await downloadGoogleTTSData(text: text, langCode: googlePreset.langCode)
 
                   case .neuralCloudTTS:
-                      let cleanBase = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                      guard !apiKey.isEmpty, let url = URL(string: "\(cleanBase)/audio/speech") else {
-                          return await downloadGoogleTTSData(text: text, langCode: "zh-CN")
-                      }
-                      var request = URLRequest(url: url)
-                      request.httpMethod = "POST"
-                      request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                      request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+                      let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
 
-                      let isCosy = aiPreset.rawValue.contains("CosyVoice")
-                      let payload: [String: Any] = [
-                          "model": isCosy ? "FunAudioLLM/CosyVoice2-0.5B" : "tts-1",
-                          "input": text,
-                          "voice": aiPreset.rawValue,
-                          "response_format": "mp3",
-                          "speed": 1.05
-                      ]
-                      request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
-                      if let (data, resp) = try? await URLSession.shared.data(for: request),
-                         let http = resp as? HTTPURLResponse, http.statusCode == 200, data.count > 256 {
-                          return data
+                      // 1. 如果用户选择了 OpenAI 官方音色 (nova / alloy / echo / shimmer / onyx / fable / coral / sage)
+                      if aiPreset.isOpenAIVoice {
+                          // 优先：若用户配置了 API Key，且当 BaseURL 误填为 siliconflow 时自动修正为 api.openai.com
+                          if !trimmedKey.isEmpty {
+                              let cleanBase = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                              let targetBase = cleanBase.lowercased().contains("siliconflow")
+                                  ? "https://api.openai.com/v1"
+                                  : cleanBase
+                              if let url = URL(string: "\(targetBase)/audio/speech") {
+                                  var request = URLRequest(url: url)
+                                  request.httpMethod = "POST"
+                                  request.timeoutInterval = 4.5
+                                  request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                                  request.setValue("Bearer \(trimmedKey)", forHTTPHeaderField: "Authorization")
+                                  let payload: [String: Any] = [
+                                      "model": "tts-1",
+                                      "input": text,
+                                      "voice": aiPreset.rawValue,
+                                      "response_format": "mp3",
+                                      "speed": 1.0
+                                  ]
+                                  request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+                                  if let (data, resp) = try? await URLSession.shared.data(for: request),
+                                     let http = resp as? HTTPURLResponse, http.statusCode == 200, data.count > 256 {
+                                      return data
+                                  }
+                              }
+                          }
+
+                          // 次选（免 Key 直连）：直接调用 OpenAI.fm 接口获取真实 OpenAI 音色音频！
+                          if let freeOpenAIData = await downloadFreeOpenAIFMData(text: text, voice: aiPreset.rawValue) {
+                              return freeOpenAIData
+                          }
+                      } else {
+                          // 2. 用户选择了 SiliconFlow CosyVoice2 音色
+                          let cleanBase = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                          let targetBase = cleanBase.isEmpty ? "https://api.siliconflow.cn/v1" : cleanBase
+                          if !trimmedKey.isEmpty, let url = URL(string: "\(targetBase)/audio/speech") {
+                              var request = URLRequest(url: url)
+                              request.httpMethod = "POST"
+                              request.timeoutInterval = 4.5
+                              request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                              request.setValue("Bearer \(trimmedKey)", forHTTPHeaderField: "Authorization")
+                              let payload: [String: Any] = [
+                                  "model": "FunAudioLLM/CosyVoice2-0.5B",
+                                  "input": text,
+                                  "voice": aiPreset.rawValue,
+                                  "response_format": "mp3",
+                                  "speed": 1.0
+                              ]
+                              request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+                              if let (data, resp) = try? await URLSession.shared.data(for: request),
+                                 let http = resp as? HTTPURLResponse, http.statusCode == 200, data.count > 256 {
+                                  return data
+                              }
+                          }
+                          // 若未填 SiliconFlow Key，同样通过 OpenAI.fm 提供同性别高拟真 AI 音色兜底
+                          let mappedVoice = aiPreset.isMaleVoice ? "echo" : "nova"
+                          if let freeOpenAIData = await downloadFreeOpenAIFMData(text: text, voice: mappedVoice) {
+                              return freeOpenAIData
+                          }
+                      }
+
+                      // 最终同性别神经语音兜底（保持男/女音色一致，绝不把男声切为女声）
+                      let fallbackEdgeVoice = aiPreset.isMaleVoice ? "zh-CN-YunxiNeural" : "zh-CN-XiaoxiaoNeural"
+                      if let encodedText = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                         let url = URL(string: "https://tts.travisvn.com/?text=\(encodedText)&voice=\(fallbackEdgeVoice)") {
+                          if let (data, resp) = try? await URLSession.shared.data(from: url),
+                             let http = resp as? HTTPURLResponse, http.statusCode == 200, data.count > 256 {
+                              return data
+                          }
                       }
                       return await downloadGoogleTTSData(text: text, langCode: "zh-CN")
 
@@ -2504,40 +3044,44 @@ jobs:
                   return nil
               }
 
-              /// 播放二进制音频并根据【真实音频秒数 player.duration】与【当前剩余时间窗】精准调整倍速，确保整句读完！
-              private func playSynthesizedAudioData(_ data: Data, cue: SubtitleCue, fallbackText: String, fallbackSpeed: Double) -> Bool {
+              private func playSynthesizedAudioData(_ data: Data, cue: SubtitleCue, nextCueStartTime: TimeInterval?) -> Bool {
                   do {
                       let player = try AVAudioPlayer(data: data)
                       player.delegate = self
                       player.enableRate = true
 
-                      // 计算此刻距离该句字幕结束还剩多少秒（至少给 1.0s）
-                      let nowWindow = max(1.0, (cue.endTime - latestPlaybackTime) / max(0.5, latestVideoRate))
-                      let actualAudioDuration = max(0.5, player.duration)
-                      let neededRate = (actualAudioDuration / nowWindow) * baseSpeechRateMultiplier
+                      let smoothRate = computeSmoothSpeed(
+                          for: cue,
+                          nextCueStartTime: nextCueStartTime,
+                          actualAudioSeconds: max(0.6, player.duration)
+                      )
 
-                      // 若 Google 预设带有语速风格修饰，叠加进去
                       var styleFactor = 1.0
                       if voiceEngine == .googleFreeStreamTTS {
-                          if googleVoicePreset == .mandarinWarm { styleFactor = 0.94 }
-                          if googleVoicePreset == .mandarinBright { styleFactor = 1.08 }
+                          if googleVoicePreset == .mandarinWarm { styleFactor = 0.96 }
+                          if googleVoicePreset == .mandarinBright { styleFactor = 1.04 }
                       }
 
-                      player.rate = Float(min(1.45, max(0.92, neededRate * styleFactor)))
+                      let finalRate = min(1.18, max(0.94, smoothRate * styleFactor))
+                      player.rate = Float(finalRate)
                       player.prepareToPlay()
                       player.play()
                       self.audioPlayer = player
+
+                      let projectedEnd = latestPlaybackTime + (player.duration / finalRate)
+                      if autoSlowVideoForLongSpeech && projectedEnd > cue.endTime + 0.35 {
+                          onTempSpeedFactorChange?(0.85)
+                      }
                       return true
                   } catch {
                       return false
                   }
               }
 
-              /// 通道 1：微软 Edge 免费神经语音
-              func speakViaEdgeFreeNeuralTTS(cue: SubtitleCue, text: String, speed: Double, targetDuration: TimeInterval) async {
+              func speakViaEdgeFreeNeuralTTS(cue: SubtitleCue, nextCueStartTime: TimeInterval?, text: String, speed: Double) async {
                   let key = cacheKey(for: cue.id)
                   if let cached = prefetchedAudioCache[key] {
-                      if playSynthesizedAudioData(cached, cue: cue, fallbackText: text, fallbackSpeed: speed) {
+                      if playSynthesizedAudioData(cached, cue: cue, nextCueStartTime: nextCueStartTime) {
                           return
                       }
                   }
@@ -2551,32 +3095,30 @@ jobs:
                       baseURL: latestTTSBaseURL
                   ) {
                       prefetchedAudioCache[key] = downloaded
-                      if playSynthesizedAudioData(downloaded, cue: cue, fallbackText: text, fallbackSpeed: speed) {
+                      if playSynthesizedAudioData(downloaded, cue: cue, nextCueStartTime: nextCueStartTime) {
                           return
                       }
                   }
-                  speakViaAppleNeuralVoice(text: text, adaptiveSpeed: speed)
+                  speakViaAppleNeuralVoice(text: text, smoothSpeed: speed)
               }
 
-              /// 通道 2：Google Translate TTS 免费流式语音
-              func speakViaGoogleFreeTTS(cue: SubtitleCue, text: String, speed: Double, targetDuration: TimeInterval) async {
+              func speakViaGoogleFreeTTS(cue: SubtitleCue, nextCueStartTime: TimeInterval?, text: String, speed: Double) async {
                   let key = cacheKey(for: cue.id)
                   if let cached = prefetchedAudioCache[key] {
-                      if playSynthesizedAudioData(cached, cue: cue, fallbackText: text, fallbackSpeed: speed) {
+                      if playSynthesizedAudioData(cached, cue: cue, nextCueStartTime: nextCueStartTime) {
                           return
                       }
                   }
                   if let downloaded = await Self.downloadGoogleTTSData(text: text, langCode: googleVoicePreset.langCode) {
                       prefetchedAudioCache[key] = downloaded
-                      if playSynthesizedAudioData(downloaded, cue: cue, fallbackText: text, fallbackSpeed: speed) {
+                      if playSynthesizedAudioData(downloaded, cue: cue, nextCueStartTime: nextCueStartTime) {
                           return
                       }
                   }
-                  speakViaAppleNeuralVoice(text: text, adaptiveSpeed: speed)
+                  speakViaAppleNeuralVoice(text: text, smoothSpeed: speed)
               }
 
-              /// 通道 3：iPhone 原生 AVSpeechSynthesizer（支持自定义发音人 + 4 款声线音调风格）
-              func speakViaAppleNeuralVoice(text: String, adaptiveSpeed: Double) {
+              func speakViaAppleNeuralVoice(text: String, smoothSpeed: Double, forceMalePitch: Bool? = nil) {
                   let utterance = AVSpeechUtterance(string: text)
                   if !selectedAppleVoiceIdentifier.isEmpty,
                      let customVoice = AVSpeechSynthesisVoice(identifier: selectedAppleVoiceIdentifier) {
@@ -2585,9 +3127,14 @@ jobs:
                       utterance.voice = Self.selectBestChineseVoice()
                   }
 
-                  let defaultRate = Double(AVSpeechUtteranceDefaultSpeechRate)
-                  utterance.rate = Float(min(0.64, max(0.45, defaultRate * adaptiveSpeed)))
-                  utterance.pitchMultiplier = applePitchStyle.pitchValue
+                  let baseRate = Double(AVSpeechUtteranceDefaultSpeechRate)
+                  let mappedRate = baseRate + (smoothSpeed - 1.0) * 0.18
+                  utterance.rate = Float(min(0.535, max(0.47, mappedRate)))
+                  if let forceMale = forceMalePitch {
+                      utterance.pitchMultiplier = forceMale ? 0.85 : 1.05
+                  } else {
+                      utterance.pitchMultiplier = applePitchStyle.pitchValue
+                  }
                   utterance.volume = 1.0
                   utterance.preUtteranceDelay = 0.0
                   utterance.postUtteranceDelay = 0.01
@@ -2595,18 +3142,17 @@ jobs:
                   synthesizer.speak(utterance)
               }
 
-              /// 通道 5：AI 大模型云端语音
               func speakViaCloudNeuralTTS(
                   cue: SubtitleCue,
+                  nextCueStartTime: TimeInterval?,
                   text: String,
                   speed: Double,
-                  targetDuration: TimeInterval,
                   apiKey: String,
                   baseURL: String
               ) async {
                   let key = cacheKey(for: cue.id)
                   if let cached = prefetchedAudioCache[key] {
-                      if playSynthesizedAudioData(cached, cue: cue, fallbackText: text, fallbackSpeed: speed) {
+                      if playSynthesizedAudioData(cached, cue: cue, nextCueStartTime: nextCueStartTime) {
                           return
                       }
                   }
@@ -2620,11 +3166,11 @@ jobs:
                       baseURL: baseURL
                   ) {
                       prefetchedAudioCache[key] = downloaded
-                      if playSynthesizedAudioData(downloaded, cue: cue, fallbackText: text, fallbackSpeed: speed) {
+                      if playSynthesizedAudioData(downloaded, cue: cue, nextCueStartTime: nextCueStartTime) {
                           return
                       }
                   }
-                  speakViaAppleNeuralVoice(text: text, adaptiveSpeed: speed)
+                  speakViaAppleNeuralVoice(text: text, smoothSpeed: speed, forceMalePitch: aiCloudVoicePreset.isMaleVoice)
               }
 
               static func selectBestChineseVoice() -> AVSpeechSynthesisVoice? {
@@ -2672,6 +3218,7 @@ jobs:
           cat << 'EOF_FILE' > YouTubeDubber/Views/ContentView.swift
           import SwiftUI
           import AVFAudio
+          import AVKit
 
           enum WorkspaceTab: String, CaseIterable, Identifiable {
               case subtitles = "双语字幕"
@@ -2689,18 +3236,16 @@ jobs:
               @State private var urlInput: String = "https://www.youtube.com/watch?v=aircAruvnKk"
               @State private var cues: [SubtitleCue] = []
               @State private var isLoadingCaptions: Bool = false
-              @State private var statusMessage: String = "支持粘贴 YouTube / Bilibili 链接或直接在下方「视频搜索」中查找视频"
+              @State private var statusMessage: String = "支持 YouTube / Bilibili 搜索与播放、去广告及 AirPlay 无线投屏"
               @State private var showSettings: Bool = false
               @State private var activeTab: WorkspaceTab = .subtitles
               @State private var filterSameAuthorOnly: Bool = false
 
-              // 双平台视频搜索状态
               @State private var searchQuery: String = ""
               @State private var searchPlatform: VideoPlatform = .youtube
               @State private var searchResults: [VideoItem] = []
               @State private var isSearching: Bool = false
 
-              // 进度条拖拽状态
               @State private var isScrubbing: Bool = false
               @State private var scrubTime: TimeInterval = 0
 
@@ -2709,8 +3254,8 @@ jobs:
 
               @AppStorage("translation_provider") private var translationProviderRaw: String = TranslationProvider.youtubeBuiltIn.rawValue
               @AppStorage("openai_api_key") private var apiKey: String = ""
-              @AppStorage("openai_base_url") private var baseURL: String = "https://api.siliconflow.cn/v1"
-              @AppStorage("openai_model") private var llmModel: String = "Qwen/Qwen2.5-7B-Instruct"
+              @AppStorage("openai_base_url") private var baseURL: String = "https://api.openai.com/v1"
+              @AppStorage("openai_model") private var llmModel: String = "gpt-4o-mini"
 
               private let transcriptService = TranscriptAndTranslationService()
               private let appleVoices = RealtimeChineseDubbingEngine.availableAppleChineseVoices()
@@ -2737,7 +3282,7 @@ jobs:
               var body: some View {
                   NavigationStack {
                       VStack(spacing: 0) {
-                          // 1. 顶部双平台智能输入栏（支持 YouTube 链接/ID、Bilibili 链接/BV号/b23.tv，若输入普通文字则自动跳转搜索！）
+                          // 1. 顶部双平台智能输入栏
                           HStack(spacing: 8) {
                               Text(playerController.currentPlatform.rawValue)
                                   .font(.caption2.bold())
@@ -2791,7 +3336,7 @@ jobs:
                               }
                           }
 
-                          // 3. 原生播放控制栏（可拖动进度条、快退10s、播放/暂停、快进10s、倍速、收藏按钮）
+                          // 3. 原生播放控制栏（可拖动进度条、快退10s、播放/暂停、快进10s、倍速、AirPlay投屏、收藏按钮）
                           VStack(spacing: 6) {
                               HStack(spacing: 8) {
                                   Text(formatTimestamp(isScrubbing ? scrubTime : playerController.currentTime))
@@ -2823,7 +3368,7 @@ jobs:
                                       .frame(width: 42, alignment: .trailing)
                               }
 
-                              HStack(spacing: 16) {
+                              HStack(spacing: 14) {
                                   Button {
                                       dubbingEngine.stopImmediately()
                                       playerController.skip(by: -10)
@@ -2881,6 +3426,10 @@ jobs:
                                   }
                                   .frame(maxWidth: .infinity, alignment: .leading)
 
+                                  // 原生 AirPlay 无线投屏选择器（支持系统音视频投屏与网页画面直投）
+                                  AirPlayRoutePickerButton()
+                                      .frame(width: 28, height: 28)
+
                                   Button {
                                       toggleFavoriteCurrentVideo()
                                   } label: {
@@ -2894,7 +3443,7 @@ jobs:
                           .padding(.vertical, 6)
                           .background(Color(.secondarySystemBackground).opacity(0.6))
 
-                          // 4. 实时配音开关、翻译源、配音引擎及【当前引擎专属音色】快捷切换栏
+                          // 4. 实时配音开关、广告拦截开关、翻译源、配音引擎及专属音色快捷切换栏
                           ScrollView(.horizontal, showsIndicators: false) {
                               HStack(spacing: 8) {
                                   Toggle(isOn: $dubbingEngine.isDubbingEnabled) {
@@ -2907,6 +3456,18 @@ jobs:
                                   .onChange(of: dubbingEngine.isDubbingEnabled) { _, enabled in
                                       if !enabled { dubbingEngine.stopImmediately() }
                                   }
+
+                                  // 广告屏蔽快捷开关
+                                  Toggle(isOn: $playerController.isAdBlockEnabled) {
+                                      Label(
+                                          playerController.blockedAdsCount > 0 ? "去广告(\(playerController.blockedAdsCount))" : "去广告",
+                                          systemImage: playerController.isAdBlockEnabled ? "shield.checkered" : "shield.slash"
+                                      )
+                                      .font(.caption.weight(.semibold))
+                                  }
+                                  .toggleStyle(.button)
+                                  .tint(playerController.isAdBlockEnabled ? .teal : .gray)
+                                  .controlSize(.mini)
 
                                   Menu {
                                       Picker("翻译渠道", selection: $translationProviderRaw) {
@@ -2948,6 +3509,18 @@ jobs:
 
                                   voiceSelectorMenuForCurrentEngine
 
+                                  Button {
+                                      playerController.triggerVideoAirPlayPicker()
+                                  } label: {
+                                      Label("视频投屏", systemImage: "airplayvideo")
+                                          .font(.caption)
+                                          .padding(.horizontal, 8)
+                                          .padding(.vertical, 4)
+                                          .background(Color.indigo.opacity(0.12))
+                                          .foregroundStyle(.indigo)
+                                          .clipShape(Capsule())
+                                  }
+
                                   if isLoadingCaptions {
                                       ProgressView()
                                           .controlSize(.mini)
@@ -2962,7 +3535,7 @@ jobs:
                               .padding(.vertical, 6)
                           }
 
-                          // 5. 四栏工作台切换器（双语字幕 / 视频搜索 / 同作者推荐 / 收藏夹）
+                          // 5. 四栏工作台切换器
                           Picker("功能面板", selection: $activeTab) {
                               Text("字幕(\(cues.count))").tag(WorkspaceTab.subtitles)
                               Text("视频搜索").tag(WorkspaceTab.search)
@@ -2998,16 +3571,24 @@ jobs:
                               }
                           }
                           ToolbarItem(placement: .topBarTrailing) {
-                              Button {
-                                  showSettings = true
-                              } label: {
-                                  Image(systemName: "slider.horizontal.3")
+                              HStack(spacing: 12) {
+                                  Button {
+                                      playerController.triggerVideoAirPlayPicker()
+                                  } label: {
+                                      Image(systemName: "airplayvideo")
+                                  }
+                                  Button {
+                                      showSettings = true
+                                  } label: {
+                                      Image(systemName: "slider.horizontal.3")
+                                  }
                               }
                           }
                       }
                       .sheet(isPresented: $showSettings) {
                           SettingsSheetView(
                               dubbingEngine: dubbingEngine,
+                              playerController: playerController,
                               translationProviderRaw: $translationProviderRaw,
                               apiKey: $apiKey,
                               baseURL: $baseURL,
@@ -3022,7 +3603,6 @@ jobs:
                   }
               }
 
-              // MARK: - 动态匹配当前配音模式的专属音色快捷菜单
               @ViewBuilder
               private var voiceSelectorMenuForCurrentEngine: some View {
                   Menu {
@@ -3060,7 +3640,7 @@ jobs:
                               }
                           }
                       case .neuralCloudTTS:
-                          Picker("AI 大模型音色", selection: $dubbingEngine.aiCloudVoicePreset) {
+                          Picker("OpenAI / AI 音色", selection: $dubbingEngine.aiCloudVoicePreset) {
                               ForEach(AICloudVoicePreset.allCases) { v in
                                   Text(v.displayName).tag(v)
                               }
@@ -3080,7 +3660,6 @@ jobs:
                   .onChange(of: dubbingEngine.aiCloudVoicePreset) { _, _ in dubbingEngine.clearPrefetchCache() }
               }
 
-              // MARK: - 子视图 1：实时滚动双语字幕列表
               private var subtitlesListView: some View {
                   ScrollViewReader { proxy in
                       List(cues) { cue in
@@ -3132,7 +3711,6 @@ jobs:
                   }
               }
 
-              // MARK: - 子视图 2：双平台视频搜索面板 (支持 YouTube 与 Bilibili 实时搜索)
               private var videoSearchView: some View {
                   VStack(spacing: 0) {
                       HStack(spacing: 8) {
@@ -3206,7 +3784,6 @@ jobs:
                   }
               }
 
-              // MARK: - 子视图 3：同作者频道/UP主视频与相关推荐
               private var authorAndRelatedVideosView: some View {
                   VStack(spacing: 0) {
                       HStack {
@@ -3242,7 +3819,6 @@ jobs:
                   }
               }
 
-              // MARK: - 子视图 4：收藏夹列表
               private var favoritesListView: some View {
                   Group {
                       if favorites.isEmpty {
@@ -3325,7 +3901,6 @@ jobs:
                   .padding(.vertical, 2)
               }
 
-              // MARK: - 交互逻辑
               func setupCallbacks() {
                   dubbingEngine.bindHandlers(
                       volumeDuck: { targetVol in
@@ -3370,7 +3945,6 @@ jobs:
                           alreadyChinese: isChinese
                       )
                       guard !parsed.isEmpty else { return }
-                      // 若当前仅有 1~2 条 B 站简介导读或为空，则用真实捕获到的字幕替换
                       if self.cues.count <= 2 {
                           self.cues = parsed
                           self.isLoadingCaptions = false
@@ -3381,7 +3955,6 @@ jobs:
                   }
               }
 
-              /// 顶部输入框智能路由：若识别为 YouTube/Bilibili 链接或 ID 则直接播放，否则作为搜索词自动跳转「视频搜索」面板！
               func handleSmartTopInput() {
                   let input = urlInput.trimmingCharacters(in: .whitespacesAndNewlines)
                   guard !input.isEmpty else { return }
@@ -3442,7 +4015,7 @@ jobs:
 
               func fetchAndTranslateSubtitles(for videoID: String, platform: VideoPlatform) async {
                   isLoadingCaptions = true
-                  statusMessage = "正在提取 \(platform.rawValue) 字幕与同作者推荐列表..."
+                  statusMessage = "正在提取 \(platform.rawValue) 字幕/弹幕与同作者推荐..."
                   do {
                       let preferYTBuiltIn = (selectedTranslationProvider == .youtubeBuiltIn)
                       let result = try await transcriptService.fetchMergedCues(
@@ -3480,11 +4053,11 @@ jobs:
               func translateLoadedCues(_ loadedCues: [SubtitleCue]) async {
                   let alreadyDoneCount = loadedCues.filter { !($0.translatedZH ?? "").isEmpty }.count
                   if alreadyDoneCount == loadedCues.count {
-                      statusMessage = "中文字幕与配音台词已全部就绪 (\(loadedCues.count) 句)"
+                      statusMessage = "中文配音台词已全部就绪 (\(loadedCues.count) 句)"
                       return
                   }
 
-                  statusMessage = "已加载 \(loadedCues.count) 句时间轴，正在通过 \(selectedTranslationProvider.shortLabel) 生成中文配音..."
+                  statusMessage = "已加载 \(loadedCues.count) 句，正在通过 \(selectedTranslationProvider.shortLabel) 翻译为中文配音..."
                   let batchSize = 20
                   for start in stride(from: 0, to: loadedCues.count, by: batchSize) {
                       let end = min(start + batchSize, loadedCues.count)
@@ -3503,7 +4076,7 @@ jobs:
                               }
                           }
                       }
-                      statusMessage = "实时配音就绪 (\(end)/\(loadedCues.count) 句已翻译)"
+                      statusMessage = "实时配音就绪 (\(end)/\(loadedCues.count) 句已就绪)"
                   }
               }
 
@@ -3558,6 +4131,7 @@ jobs:
 
           struct SettingsSheetView: View {
               @ObservedObject var dubbingEngine: RealtimeChineseDubbingEngine
+              @ObservedObject var playerController: YouTubePlayerController
               @Binding var translationProviderRaw: String
               @Binding var apiKey: String
               @Binding var baseURL: String
@@ -3570,13 +4144,34 @@ jobs:
                   NavigationStack {
                       Form {
                           Section {
+                              Toggle("启用双层去广告拦截 (YouTube & B站)", isOn: $playerController.isAdBlockEnabled)
+                              HStack {
+                                  Text("本次会话已自动拦截/跳过广告")
+                                  Spacer()
+                                  Text("\(playerController.blockedAdsCount) 次")
+                                      .foregroundStyle(.teal)
+                                      .bold()
+                              }
+                              Button {
+                                  dismiss()
+                                  DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                      playerController.triggerVideoAirPlayPicker()
+                                  }
+                              } label: {
+                                  Label("唤醒 AirPlay 无线视频投屏选择器", systemImage: "airplayvideo")
+                              }
+                          } header: {
+                              Text("1. 广告屏蔽与无线投屏 (AirPlay)")
+                          } footer: {
+                              Text("内置 WebKit WKContentRuleList 网络层广告拦截与 150ms 贴片广告自动跳过器；点击投屏按钮可将视频与实时中文配音投射至 Apple TV、智能电视、Mac 或 HomePod。")
+                          }
+
+                          Section {
                               Toggle("完整读完保护 (不中途掐断上一句)", isOn: $dubbingEngine.preventMidSentenceCutoff)
                               Toggle("长句智能微慢放视频等配音收尾", isOn: $dubbingEngine.autoSlowVideoForLongSpeech)
                                   .disabled(!dubbingEngine.preventMidSentenceCutoff)
                           } header: {
-                              Text("1. 防中断与声画同步优化")
-                          } footer: {
-                              Text("开启后，当某句中文翻译较长尚未读完而下一句字幕已出现时，系统不会粗暴掐断当前配音，而是自动将原视频微调为 0.78x 速率等待当前句自然读完，并在读完瞬间无缝衔接下一句。")
+                              Text("2. 防中断与平稳语速优化")
                           }
 
                           Section {
@@ -3586,7 +4181,6 @@ jobs:
                                   }
                               }
 
-                              // 每种配音模式专属的音色选择器
                               switch dubbingEngine.voiceEngine {
                               case .edgeFreeNeuralTTS:
                                   Picker("Edge 神经主播音色 (8款)", selection: $dubbingEngine.edgeVoice) {
@@ -3620,7 +4214,7 @@ jobs:
                                       }
                                   }
                               case .neuralCloudTTS:
-                                  Picker("AI 大模型音色 (10款)", selection: $dubbingEngine.aiCloudVoicePreset) {
+                                  Picker("OpenAI / CosyVoice2 音色 (14款)", selection: $dubbingEngine.aiCloudVoicePreset) {
                                       ForEach(AICloudVoicePreset.allCases) { preset in
                                           Text(preset.displayName).tag(preset)
                                       }
@@ -3644,10 +4238,12 @@ jobs:
                                       Text(String(format: "%.2fx", dubbingEngine.baseSpeechRateMultiplier))
                                           .foregroundStyle(.secondary)
                                   }
-                                  Slider(value: $dubbingEngine.baseSpeechRateMultiplier, in: 0.9...1.35, step: 0.02)
+                                  Slider(value: $dubbingEngine.baseSpeechRateMultiplier, in: 0.9...1.3, step: 0.02)
                               }
                           } header: {
-                              Text("2. 配音模式与专属音色选择")
+                              Text("3. 配音模式与专属音色选择")
+                          } footer: {
+                              Text("OpenAI 的 8 款官方音色 (Nova / Alloy / Echo / Shimmer / Onyx / Fable / Coral / Sage) 已支持通过 OpenAI.fm 免 Key 直连发声，也可填入官方 OpenAI Key 调用。")
                           }
 
                           Section {
@@ -3657,29 +4253,34 @@ jobs:
                                   }
                               }
                           } header: {
-                              Text("3. 免费字幕翻译渠道选择")
+                              Text("4. 免费字幕翻译渠道选择")
                           }
 
                           Section {
                               HStack(spacing: 8) {
-                                  Button("一键预设 SiliconFlow 免费模型") {
-                                      baseURL = "https://api.siliconflow.cn/v1"
-                                      llmModel = "Qwen/Qwen2.5-7B-Instruct"
-                                      translationProviderRaw = TranslationProvider.siliconFlowFreeAI.rawValue
+                                  Button("预设 OpenAI 官方") {
+                                      baseURL = "https://api.openai.com/v1"
+                                      llmModel = "gpt-4o-mini"
                                   }
                                   .buttonStyle(.bordered)
                                   .controlSize(.small)
 
-                                  Button("一键预设 Groq 极速模型") {
+                                  Button("预设 SiliconFlow") {
+                                      baseURL = "https://api.siliconflow.cn/v1"
+                                      llmModel = "Qwen/Qwen2.5-7B-Instruct"
+                                  }
+                                  .buttonStyle(.bordered)
+                                  .controlSize(.small)
+
+                                  Button("预设 Groq") {
                                       baseURL = "https://api.groq.com/openai/v1"
                                       llmModel = "llama-3.3-70b-versatile"
-                                      translationProviderRaw = TranslationProvider.customOpenAI.rawValue
                                   }
                                   .buttonStyle(.bordered)
                                   .controlSize(.small)
                               }
 
-                              SecureField("API Key (免费渠道无需填写，仅 AI 大模型使用)", text: $apiKey)
+                              SecureField("API Key (选填，OpenAI音色与免费翻译免Key可用)", text: $apiKey)
                               TextField("API Base URL", text: $baseURL)
                                   .textInputAutocapitalization(.never)
                                   .disableAutocorrection(true)
@@ -3687,10 +4288,10 @@ jobs:
                                   .textInputAutocapitalization(.never)
                                   .disableAutocorrection(true)
                           } header: {
-                              Text("4. 免费 AI 大模型同传与 CosyVoice2 配音 (选填)")
+                              Text("5. AI 大模型接口配置 (选填)")
                           }
                       }
-                      .navigationTitle("配音、音色与防中断设置")
+                      .navigationTitle("配音、去广告与投屏设置")
                       .navigationBarTitleDisplayMode(.inline)
                       .toolbar {
                           ToolbarItem(placement: .confirmationAction) {
