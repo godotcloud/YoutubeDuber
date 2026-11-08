@@ -1,4 +1,4 @@
-name: iOS Build & Unsigned IPA (Zero-Unzip Standalone Workflow v2.1)
+name: iOS Build & Unsigned IPA (Zero-Unzip Standalone Workflow v3.0)
 
 on:
   push:
@@ -28,9 +28,9 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Bootstrap iOS Project Source Files (免解压自动写入完整工程源码 v2.1)
+      - name: Bootstrap iOS Project Source Files (免解压自动写入完整工程源码 v3.0)
         run: |
-          echo "正在生成/更新完整 iOS 工程源码 v2.1（免解压单 YML 构建模式）..."
+          echo "正在生成/更新完整 iOS 工程源码 v3.0（YouTube + Bilibili 双平台支持，免解压单 YML 构建模式）..."
           mkdir -p YouTubeDubber/Models YouTubeDubber/Services YouTubeDubber/Views
           cat << 'EOF_FILE' > project.yml
           name: YouTubeDubber
@@ -60,8 +60,8 @@ jobs:
                 properties:
                   CFBundleDisplayName: "YTDubber"
                   CFBundleName: "YTDubber"
-                  CFBundleShortVersionString: "2.1.0"
-                  CFBundleVersion: "3"
+                  CFBundleShortVersionString: "3.0.0"
+                  CFBundleVersion: "4"
                   UILaunchScreen: {}
                   UIBackgroundModes:
                     - audio
@@ -74,8 +74,8 @@ jobs:
               settings:
                 base:
                   PRODUCT_BUNDLE_IDENTIFIER: com.ai.youtubedubber.app
-                  MARKETING_VERSION: "2.1.0"
-                  CURRENT_PROJECT_VERSION: "3"
+                  MARKETING_VERSION: "3.0.0"
+                  CURRENT_PROJECT_VERSION: "4"
                   CODE_SIGN_STYLE: Automatic
                   ENABLE_USER_SCRIPT_SANDBOXING: NO
           EOF_FILE
@@ -99,9 +99,9 @@ jobs:
               <key>CFBundlePackageType</key>
               <string>APPL</string>
               <key>CFBundleShortVersionString</key>
-              <string>2.1.0</string>
+              <string>3.0.0</string>
               <key>CFBundleVersion</key>
-              <string>3</string>
+              <string>4</string>
               <key>UILaunchScreen</key>
               <dict/>
               <key>UIBackgroundModes</key>
@@ -156,6 +156,21 @@ jobs:
           cat << 'EOF_FILE' > YouTubeDubber/Models/SubtitleCue.swift
           import Foundation
 
+          /// 视频所属平台枚举（支持 YouTube 与 Bilibili 哔哩哔哩）
+          enum VideoPlatform: String, Codable, CaseIterable, Identifiable, Sendable {
+              case youtube = "YouTube"
+              case bilibili = "Bilibili"
+
+              var id: String { rawValue }
+
+              var badgeColorHex: String {
+                  switch self {
+                  case .youtube: return "#FF0000"
+                  case .bilibili: return "#FB7299"
+                  }
+              }
+          }
+
           /// 单条时间轴字幕与中文配音状态
           struct SubtitleCue: Identifiable, Equatable, Sendable {
               let id: UUID
@@ -187,35 +202,57 @@ jobs:
               }
           }
 
-          /// 视频元数据（用于收藏夹、当前视频信息与同作者/相关推荐视频）
+          /// 视频元数据（统一支持 YouTube 与 Bilibili 搜索结果、同作者推荐与本地收藏夹）
           struct VideoItem: Identifiable, Codable, Equatable, Sendable {
-              var id: String { videoID }
+              var id: String { "\(platform.rawValue)_\(videoID)" }
+              let platform: VideoPlatform
               let videoID: String
               let title: String
               let author: String
               let channelID: String
               let durationText: String
+              let customCoverURL: String
               let isSameAuthor: Bool
               let addedAt: Date
 
               var thumbnailURL: URL? {
-                  URL(string: "https://i.ytimg.com/vi/\(videoID)/hqdefault.jpg")
+                  if !customCoverURL.isEmpty {
+                      let normalized = customCoverURL.hasPrefix("//") ? ("https:" + customCoverURL) : customCoverURL
+                      return URL(string: normalized)
+                  }
+                  if platform == .youtube {
+                      return URL(string: "https://i.ytimg.com/vi/\(videoID)/hqdefault.jpg")
+                  }
+                  return nil
+              }
+
+              var watchURLString: String {
+                  switch platform {
+                  case .youtube:
+                      return "https://www.youtube.com/watch?v=\(videoID)"
+                  case .bilibili:
+                      return "https://www.bilibili.com/video/\(videoID)"
+                  }
               }
 
               init(
+                  platform: VideoPlatform = .youtube,
                   videoID: String,
                   title: String,
                   author: String,
                   channelID: String = "",
                   durationText: String = "",
+                  customCoverURL: String = "",
                   isSameAuthor: Bool = false,
                   addedAt: Date = Date()
               ) {
+                  self.platform = platform
                   self.videoID = videoID
                   self.title = title
                   self.author = author
                   self.channelID = channelID
                   self.durationText = durationText
+                  self.customCoverURL = customCoverURL
                   self.isSameAuthor = isSameAuthor
                   self.addedAt = addedAt
               }
@@ -223,7 +260,7 @@ jobs:
 
           /// 5 大内置翻译渠道
           enum TranslationProvider: String, CaseIterable, Identifiable {
-              case youtubeBuiltIn = "YouTube 官方内置翻译 (tlang=zh-Hans 极速免Key)"
+              case youtubeBuiltIn = "平台官方内置翻译 (YT tlang / B站AI字幕 免Key)"
               case googleGTXFree = "Google 翻译 GTX 批量通道 (免费免Key)"
               case myMemoryFree = "MyMemory 开源翻译网格 (免费免Key备用)"
               case siliconFlowFreeAI = "SiliconFlow 免费 AI 大模型 (Qwen2.5 同传润色)"
@@ -233,7 +270,7 @@ jobs:
 
               var shortLabel: String {
                   switch self {
-                  case .youtubeBuiltIn: return "YT官方内译"
+                  case .youtubeBuiltIn: return "官方内译"
                   case .googleGTXFree: return "Google翻译"
                   case .myMemoryFree: return "MyMemory免费"
                   case .siliconFlowFreeAI: return "Qwen免费AI"
@@ -338,7 +375,7 @@ jobs:
               }
           }
 
-          /// 模式 3 附加声线：iPhone 原生 AVSpeechSynthesizer 音调风格（可叠加在系统任意发音人之上）
+          /// 模式 3 附加声线：iPhone 原生 AVSpeechSynthesizer 音调风格
           enum AppleVoicePitchStyle: String, CaseIterable, Identifiable {
               case natural = "natural"
               case brightFemale = "brightFemale"
@@ -405,7 +442,7 @@ jobs:
               }
           }
 
-          /// 模式 5 音色：AI 大模型云端语音 (SiliconFlow CosyVoice2-0.5B 6款音色 + OpenAI 4款音色)
+          /// 模式 5 音色：AI 大模型云端语音
           enum AICloudVoicePreset: String, CaseIterable, Identifiable {
               case cosyAlex = "FunAudioLLM/CosyVoice2-0.5B:alex"
               case cosyAnna = "FunAudioLLM/CosyVoice2-0.5B:anna"
@@ -466,9 +503,10 @@ jobs:
           import WebKit
           import SwiftUI
 
-          /// 负责 WKWebView 与 YouTube 原生 HTML5 <video> 播放器、同源字幕/内译拦截器及同作者视频推荐的双向通信
+          /// 负责 WKWebView 与 YouTube / Bilibili 双平台原生 HTML5 <video> 播放器及同源字幕拦截器的双向通信
           @MainActor
           final class YouTubePlayerController: NSObject, ObservableObject, WKScriptMessageHandler, WKNavigationDelegate {
+              @Published var currentPlatform: VideoPlatform = .youtube
               @Published var currentTime: TimeInterval = 0
               @Published var duration: TimeInterval = 0
               @Published var playerState: YTPlayerState = .unstarted
@@ -479,6 +517,7 @@ jobs:
               @Published var currentTitle: String = "3Blue1Brown - 神经网络究竟是什么？"
               @Published var currentAuthor: String = "3Blue1Brown"
               @Published var currentChannelID: String = ""
+              @Published var currentCoverURL: String = ""
               @Published var relatedVideos: [VideoItem] = []
               @Published var isCleanPlayerLayout: Bool = true
 
@@ -488,46 +527,118 @@ jobs:
               var onWebViewCaptionsCaptured: ((String, String?, Bool) -> Void)?
               var onWebKitSpeechEnded: (() -> Void)?
 
-              static func extractVideoID(from input: String) -> String? {
+              /// 智能识别输入字符串（支持 YouTube 链接/ID、Bilibili 链接/BV号、以及包含 b23.tv 短链或 BV 号的分享文本）
+              static func parseInput(_ input: String) async -> (platform: VideoPlatform, videoID: String)? {
                   let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
-                  if trimmed.count == 11, !trimmed.contains("/"), !trimmed.contains("?") {
+                  guard !trimmed.isEmpty else { return nil }
+
+                  // 1. 直接匹配文本中的 BV 号 (BV + 10位字母数字)
+                  if let bvMatch = extractBVID(from: trimmed) {
+                      return (.bilibili, bvMatch)
+                  }
+
+                  // 2. 若包含 b23.tv 短链接，先请求重定向后的真实 URL 再提取 BV 号
+                  if let b23URL = extractFirstURL(from: trimmed),
+                     let host = b23URL.host?.lowercased(),
+                     host.contains("b23.tv") {
+                      if let resolvedBV = await resolveB23ShortLink(b23URL) {
+                          return (.bilibili, resolvedBV)
+                      }
+                  }
+
+                  // 3. 解析常规 YouTube URL 或 11 位 Video ID
+                  if let ytID = extractYouTubeID(from: trimmed) {
+                      return (.youtube, ytID)
+                  }
+
+                  return nil
+              }
+
+              static func extractBVID(from text: String) -> String? {
+                  guard let regex = try? NSRegularExpression(pattern: "(BV[a-zA-Z0-9]{10})", options: []) else {
+                      return nil
+                  }
+                  let ns = text as NSString
+                  if let match = regex.firstMatch(in: text, options: [], range: NSRange(location: 0, length: ns.length)) {
+                      return ns.substring(with: match.range(at: 1))
+                  }
+                  return nil
+              }
+
+              static func extractFirstURL(from text: String) -> URL? {
+                  guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
+                      return URL(string: text)
+                  }
+                  let ns = text as NSString
+                  if let match = detector.firstMatch(in: text, options: [], range: NSRange(location: 0, length: ns.length)),
+                     let url = match.url {
+                      return url
+                  }
+                  return URL(string: text)
+              }
+
+              static func resolveB23ShortLink(_ url: URL) async -> String? {
+                  var req = URLRequest(url: url)
+                  req.httpMethod = "GET"
+                  req.timeoutInterval = 5.0
+                  if let (_, resp) = try? await URLSession.shared.data(for: req),
+                     let finalURL = resp.url?.absoluteString,
+                     let bv = extractBVID(from: finalURL) {
+                      return bv
+                  }
+                  return nil
+              }
+
+              static func extractYouTubeID(from input: String) -> String? {
+                  let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+                  if trimmed.count == 11, !trimmed.contains("/"), !trimmed.contains("?"), !trimmed.hasPrefix("BV") {
                       return trimmed
                   }
-                  guard let url = URL(string: trimmed) else { return nil }
-                  if let host = url.host?.lowercased() {
-                      if host.contains("youtu.be") {
-                          let pathID = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                          if pathID.count >= 11 {
-                              return String(pathID.prefix(11))
-                          }
+                  guard let url = extractFirstURL(from: trimmed),
+                        let host = url.host?.lowercased() else { return nil }
+                  if host.contains("youtu.be") {
+                      let pathID = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                      if pathID.count >= 11 {
+                          return String(pathID.prefix(11))
                       }
-                      if host.contains("youtube.com") || host.contains("youtube-nocookie.com") {
-                          if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-                             let v = components.queryItems?.first(where: { $0.name == "v" })?.value,
-                             v.count >= 11 {
-                              return String(v.prefix(11))
-                          }
-                          let parts = url.pathComponents
-                          if let idx = parts.firstIndex(where: { $0 == "shorts" || $0 == "embed" || $0 == "live" || $0 == "v" }),
-                             parts.count > idx + 1 {
-                              let candidate = parts[idx + 1]
-                              if candidate.count >= 11 {
-                                  return String(candidate.prefix(11))
-                              }
+                  }
+                  if host.contains("youtube.com") || host.contains("youtube-nocookie.com") {
+                      if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                         let v = components.queryItems?.first(where: { $0.name == "v" })?.value,
+                         v.count >= 11 {
+                          return String(v.prefix(11))
+                      }
+                      let parts = url.pathComponents
+                      if let idx = parts.firstIndex(where: { $0 == "shorts" || $0 == "embed" || $0 == "live" || $0 == "v" }),
+                         parts.count > idx + 1 {
+                          let candidate = parts[idx + 1]
+                          if candidate.count >= 11 {
+                              return String(candidate.prefix(11))
                           }
                       }
                   }
                   return nil
               }
 
-              func loadVideo(id: String) {
+              func loadVideo(platform: VideoPlatform, id: String) {
+                  currentPlatform = platform
                   currentVideoID = id
                   currentTime = 0
                   duration = 0
-                  guard let url = URL(string: "https://m.youtube.com/watch?v=\(id)&hl=zh-CN") else { return }
-                  var request = URLRequest(url: url)
-                  request.setValue("https://m.youtube.com/", forHTTPHeaderField: "Referer")
-                  webView?.load(request)
+
+                  switch platform {
+                  case .youtube:
+                      guard let url = URL(string: "https://m.youtube.com/watch?v=\(id)&hl=zh-CN") else { return }
+                      var request = URLRequest(url: url)
+                      request.setValue("https://m.youtube.com/", forHTTPHeaderField: "Referer")
+                      webView?.load(request)
+                  case .bilibili:
+                      // 使用 Bilibili 官方 HTML5 高清无弹窗内嵌播放器页 + 移动端视频页支持
+                      guard let url = URL(string: "https://www.bilibili.com/blackboard/html5mobileplayer.html?bvid=\(id)&high_quality=1&danmaku=0&autoplay=1") else { return }
+                      var request = URLRequest(url: url)
+                      request.setValue("https://www.bilibili.com/video/\(id)", forHTTPHeaderField: "Referer")
+                      webView?.load(request)
+                  }
               }
 
               func toggleCleanLayout() {
@@ -556,20 +667,17 @@ jobs:
                   evaluateJS("window.__toggleYTPlay && window.__toggleYTPlay();")
               }
 
-              /// 用户手动切换基准倍速
               func setPlaybackSpeed(_ speed: Double) {
                   userSelectedSpeed = speed
                   playbackRate = speed
                   evaluateJS("window.__setYTSpeed && window.__setYTSpeed(\(speed));")
               }
 
-              /// 配音引擎临时调节视频速率（例如长句配音尚未读完时临时微降视频速率至 0.80x 等待配音收尾，读完立即恢复）
               func setTemporarySyncSpeedFactor(_ factor: Double) {
                   let effective = max(0.65, min(2.0, userSelectedSpeed * factor))
                   evaluateJS("window.__setYTSpeed && window.__setYTSpeed(\(effective));")
               }
 
-              /// 调用 WebKit 内置 window.speechSynthesis 进行免费中文语音播报（支持口音与音调预设及结束回调）
               func speakViaWebKit(text: String, lang: String, rate: Double, pitch: Double) {
                   let escaped = text
                       .replacingOccurrences(of: "\\", with: "\\\\")
@@ -642,19 +750,22 @@ jobs:
                       if let rawList = body["related"] as? [[String: Any]] {
                           var items: [VideoItem] = []
                           for dict in rawList {
-                              guard let vid = dict["videoId"] as? String, vid.count == 11,
+                              guard let vid = dict["videoId"] as? String, !vid.isEmpty,
                                     let title = dict["title"] as? String, !title.isEmpty else { continue }
                               let author = (dict["author"] as? String) ?? self.currentAuthor
                               let dur = (dict["duration"] as? String) ?? ""
+                              let cover = (dict["cover"] as? String) ?? ""
                               let sameAuthor = (dict["isSameAuthor"] as? Bool) ?? (author == self.currentAuthor)
                               if !items.contains(where: { $0.videoID == vid }) && vid != self.currentVideoID {
                                   items.append(
                                       VideoItem(
+                                          platform: self.currentPlatform,
                                           videoID: vid,
                                           title: title,
                                           author: author,
                                           channelID: self.currentChannelID,
                                           durationText: dur,
+                                          customCoverURL: cover,
                                           isSameAuthor: sameAuthor
                                       )
                                   )
@@ -670,7 +781,7 @@ jobs:
               }
           }
 
-          /// SwiftUI 封装的 YouTube 真机移动网页播放器
+          /// SwiftUI 封装的 YouTube + Bilibili 双平台网页播放器
           struct YouTubeWebPlayerView: UIViewRepresentable {
               @ObservedObject var controller: YouTubePlayerController
 
@@ -698,11 +809,7 @@ jobs:
                   webView.backgroundColor = .black
 
                   controller.webView = webView
-                  if let url = URL(string: "https://m.youtube.com/watch?v=\(controller.currentVideoID)&hl=zh-CN") {
-                      var request = URLRequest(url: url)
-                      request.setValue("https://m.youtube.com/", forHTTPHeaderField: "Referer")
-                      webView.load(request)
-                  }
+                  controller.loadVideo(platform: controller.currentPlatform, id: controller.currentVideoID)
                   return webView
               }
 
@@ -722,6 +829,7 @@ jobs:
                           } catch (e) {}
                       }
 
+                      // 1. 同时拦截 YouTube (/api/timedtext) 与 Bilibili (aisubtitle.hdslb.com / /x/player/wbi/v2) 字幕请求
                       const origFetch = window.fetch;
                       let fetchedTlangForBase = {};
                       window.fetch = async function(...args) {
@@ -753,6 +861,18 @@ jobs:
                                           });
                                       }
                                   }).catch(function(){});
+                              } else if (url.includes('aisubtitle.hdslb.com')) {
+                                  const clone = res.clone();
+                                  clone.text().then(function(txt) {
+                                      if (txt && txt.length > 20) {
+                                          postToNative({
+                                              event: 'onCaptionsPayload',
+                                              payload: txt,
+                                              translatedPayload: null,
+                                              isChinese: false
+                                          });
+                                      }
+                                  }).catch(function(){});
                               }
                           } catch (e) {}
                           return res;
@@ -768,7 +888,7 @@ jobs:
                           this.addEventListener('load', function() {
                               try {
                                   const u = this.__ytUrl || '';
-                                  if (u.includes('/api/timedtext') && this.responseText && this.responseText.length > 20) {
+                                  if ((u.includes('/api/timedtext') || u.includes('aisubtitle.hdslb.com')) && this.responseText && this.responseText.length > 20) {
                                       const isZH = u.includes('lang=zh') || u.includes('tlang=zh');
                                       postToNative({
                                           event: 'onCaptionsPayload',
@@ -776,12 +896,32 @@ jobs:
                                           translatedPayload: null,
                                           isChinese: isZH
                                       });
+                                  } else if (u.includes('/x/player/wbi/v2') || u.includes('/x/player/v2')) {
+                                      // B站播放器字幕列表响应：若包含 subtitle_url，自动拉取第一个字幕文件
+                                      const json = JSON.parse(this.responseText);
+                                      const subs = json && json.data && json.data.subtitle && json.data.subtitle.subtitles;
+                                      if (subs && subs.length > 0 && subs[0].subtitle_url) {
+                                          let subUrl = subs[0].subtitle_url;
+                                          if (subUrl.startsWith('//')) subUrl = 'https:' + subUrl;
+                                          origFetch(subUrl).then(r => r.text()).then(t => {
+                                              if (t && t.length > 20) {
+                                                  const lan = (subs[0].lan || '').toLowerCase();
+                                                  postToNative({
+                                                      event: 'onCaptionsPayload',
+                                                      payload: t,
+                                                      translatedPayload: null,
+                                                      isChinese: lan.includes('zh')
+                                                  });
+                                              }
+                                          }).catch(function(){});
+                                      }
                                   }
                               } catch (e) {}
                           });
                           return origSend.apply(this, arguments);
                       };
 
+                      // 2. 注入纯净播放器样式（同时兼容 YouTube 与 Bilibili 播放器）
                       let cleanLayoutEnabled = true;
                       function injectCleanCSS() {
                           if (!cleanLayoutEnabled) return;
@@ -797,7 +937,13 @@ jobs:
                               ytm-slim-video-metadata-section-renderer,
                               ytm-engagement-panel-section-list-renderer,
                               ytm-companion-slot,
-                              .related-chips-slot-wrapper {
+                              .related-chips-slot-wrapper,
+                              .m-navbar,
+                              .m-video-info-new,
+                              .m-video-part-new,
+                              .launch-app-btn,
+                              .open-app-bar,
+                              .bili-app-link-btn {
                                   display: none !important;
                               }
                               html, body {
@@ -806,7 +952,7 @@ jobs:
                                   background: #000 !important;
                                   overflow: hidden !important;
                               }
-                              #player-container-id, .player-container, #movie_player {
+                              #player-container-id, .player-container, #movie_player, .bilibili-player, #bilibiliPlayer {
                                   position: fixed !important;
                                   top: 0 !important;
                                   left: 0 !important;
@@ -1040,7 +1186,7 @@ jobs:
           cat << 'EOF_FILE' > YouTubeDubber/Services/TranscriptAndTranslationService.swift
           import Foundation
 
-          /// 负责多通道字幕获取、YouTube 官方内置 `tlang=zh-Hans` 翻译、多源免费翻译以及同作者频道视频发现
+          /// 负责 YouTube + Bilibili 双平台字幕获取、视频搜索、同作者/UP主推荐以及多源免费翻译
           struct TranscriptAndTranslationService: Sendable {
               struct CaptionTrackInfo: Sendable {
                   let baseUrl: String
@@ -1055,14 +1201,286 @@ jobs:
 
                   var errorDescription: String? {
                       switch self {
-                      case .videoPageFetchFailed: return "无法连接 YouTube 字幕服务，请检查网络"
-                      case .noCaptionsAvailable: return "该视频未提供字幕轨道 (CC)"
+                      case .videoPageFetchFailed: return "无法连接视频字幕服务，请检查网络"
+                      case .noCaptionsAvailable: return "该视频暂未提供外挂/AI字幕轨道"
                       case .captionParseFailed: return "正在等待播放器加载同源字幕轨道..."
                       }
                   }
               }
 
-              func fetchMergedCues(for videoID: String, preferYouTubeBuiltInTranslation: Bool) async throws -> (cues: [SubtitleCue], title: String?, author: String?, channelID: String?, channelVideos: [VideoItem]) {
+              // MARK: - 双平台视频关键词搜索 (YouTube & Bilibili)
+              func searchVideos(keyword: String, platform: VideoPlatform) async -> [VideoItem] {
+                  let trimmed = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+                  guard !trimmed.isEmpty else { return [] }
+                  switch platform {
+                  case .youtube:
+                      return await searchYouTubeVideos(keyword: trimmed)
+                  case .bilibili:
+                      return await searchBilibiliVideos(keyword: trimmed)
+                  }
+              }
+
+              /// YouTube 关键词搜索（基于 InnerTube `/youtubei/v1/search`，免 API Key）
+              func searchYouTubeVideos(keyword: String) async -> [VideoItem] {
+                  var collected: [VideoItem] = []
+                  guard let url = URL(string: "https://www.youtube.com/youtubei/v1/search?prettyPrint=false") else {
+                      return []
+                  }
+                  var req = URLRequest(url: url)
+                  req.httpMethod = "POST"
+                  req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                  let body: [String: Any] = [
+                      "context": [
+                          "client": [
+                              "clientName": "WEB",
+                              "clientVersion": "2.20250501.00.00",
+                              "hl": "zh-CN"
+                          ]
+                      ],
+                      "query": keyword
+                  ]
+                  req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+                  if let (data, _) = try? await URLSession.shared.data(for: req),
+                     let json = try? JSONSerialization.jsonObject(with: data) {
+                      extractYouTubeVideoRenderers(from: json, currentVideoID: "", currentAuthor: "", into: &collected)
+                  }
+                  return collected
+              }
+
+              /// Bilibili 关键词搜索（自动获取 buvid3 指纹 Cookie 后调用 `/x/web-interface/search/type?search_type=video`）
+              func searchBilibiliVideos(keyword: String) async -> [VideoItem] {
+                  guard let encoded = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                        let searchURL = URL(string: "https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=\(encoded)&page=1") else {
+                      return []
+                  }
+
+                  // 先获取 Bilibili 匿名指纹 Cookie (buvid3/buvid4) 避免 -412 拦截
+                  var buvidCookie = "buvid3=INFOC;"
+                  if let spiURL = URL(string: "https://api.bilibili.com/x/frontend/finger/spi"),
+                     let (spiData, _) = try? await URLSession.shared.data(from: spiURL),
+                     let spiJSON = try? JSONSerialization.jsonObject(with: spiData) as? [String: Any],
+                     let dataDict = spiJSON["data"] as? [String: Any],
+                     let b3 = dataDict["b_3"] as? String {
+                      let b4 = (dataDict["b_4"] as? String) ?? ""
+                      buvidCookie = "buvid3=\(b3); buvid4=\(b4);"
+                  }
+
+                  var req = URLRequest(url: searchURL)
+                  req.setValue("https://search.bilibili.com/", forHTTPHeaderField: "Referer")
+                  req.setValue(
+                      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+                      forHTTPHeaderField: "User-Agent"
+                  )
+                  req.setValue(buvidCookie, forHTTPHeaderField: "Cookie")
+
+                  guard let (data, _) = try? await URLSession.shared.data(for: req),
+                        let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                        let dataObj = root["data"] as? [String: Any],
+                        let results = dataObj["result"] as? [[String: Any]] else {
+                      return []
+                  }
+
+                  var items: [VideoItem] = []
+                  for item in results {
+                      guard let bvid = item["bvid"] as? String, !bvid.isEmpty else { continue }
+                      let rawTitle = (item["title"] as? String) ?? bvid
+                      let cleanTitle = decodeHTMLEntities(stripHTMLTags(rawTitle))
+                      let author = (item["author"] as? String) ?? "B站UP主"
+                      let duration = (item["duration"] as? String) ?? ""
+                      let pic = (item["pic"] as? String) ?? ""
+                      let midStr = String((item["mid"] as? Int) ?? 0)
+
+                      items.append(
+                          VideoItem(
+                              platform: .bilibili,
+                              videoID: bvid,
+                              title: cleanTitle,
+                              author: author,
+                              channelID: midStr,
+                              durationText: duration,
+                              customCoverURL: pic
+                          )
+                      )
+                  }
+                  return items
+              }
+
+              // MARK: - 双平台字幕与视频详情入口
+              func fetchMergedCues(
+                  for videoID: String,
+                  platform: VideoPlatform,
+                  preferYouTubeBuiltInTranslation: Bool
+              ) async throws -> (cues: [SubtitleCue], title: String?, author: String?, channelID: String?, coverURL: String?, channelVideos: [VideoItem]) {
+                  switch platform {
+                  case .youtube:
+                      return try await fetchYouTubeMergedCues(for: videoID, preferYouTubeBuiltInTranslation: preferYouTubeBuiltInTranslation)
+                  case .bilibili:
+                      return try await fetchBilibiliMergedCues(for: videoID)
+                  }
+              }
+
+              // MARK: - Bilibili 字幕、详情与同 UP 主/相关推荐提取
+              func fetchBilibiliMergedCues(for bvid: String) async throws -> (cues: [SubtitleCue], title: String?, author: String?, channelID: String?, coverURL: String?, channelVideos: [VideoItem]) {
+                  guard let viewURL = URL(string: "https://api.bilibili.com/x/web-interface/view?bvid=\(bvid)") else {
+                      throw TranscriptError.videoPageFetchFailed
+                  }
+                  var req = URLRequest(url: viewURL)
+                  req.setValue("https://www.bilibili.com/video/\(bvid)", forHTTPHeaderField: "Referer")
+                  req.setValue(
+                      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+                      forHTTPHeaderField: "User-Agent"
+                  )
+
+                  let (data, response) = try await URLSession.shared.data(for: req)
+                  guard let http = response as? HTTPURLResponse, http.statusCode == 200,
+                        let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                        let dataDict = root["data"] as? [String: Any] else {
+                      throw TranscriptError.videoPageFetchFailed
+                  }
+
+                  let title = (dataDict["title"] as? String) ?? bvid
+                  let desc = (dataDict["desc"] as? String) ?? ""
+                  let pic = (dataDict["pic"] as? String) ?? ""
+                  let cid = (dataDict["cid"] as? Int) ?? 0
+                  let owner = dataDict["owner"] as? [String: Any]
+                  let author = (owner?["name"] as? String) ?? "Bilibili UP主"
+                  let mid = String((owner?["mid"] as? Int) ?? 0)
+
+                  // 并发获取 B 站相关推荐与同 UP 主视频
+                  let relatedVideos = await fetchBilibiliRelatedVideos(bvid: bvid, currentAuthor: author)
+
+                  // 1. 先检查 view 接口内嵌的 data.subtitle.list
+                  var subtitleTracks: [[String: Any]] = []
+                  if let subObj = dataDict["subtitle"] as? [String: Any],
+                     let list = subObj["list"] as? [[String: Any]], !list.isEmpty {
+                      subtitleTracks.append(contentsOf: list)
+                  }
+
+                  // 2. 再查询 /x/player/v2 接口获取 CC / AI 字幕列表
+                  if subtitleTracks.isEmpty && cid > 0,
+                     let playerURL = URL(string: "https://api.bilibili.com/x/player/v2?bvid=\(bvid)&cid=\(cid)") {
+                      var pReq = URLRequest(url: playerURL)
+                      pReq.setValue("https://www.bilibili.com/video/\(bvid)", forHTTPHeaderField: "Referer")
+                      if let (pData, _) = try? await URLSession.shared.data(for: pReq),
+                         let pRoot = try? JSONSerialization.jsonObject(with: pData) as? [String: Any],
+                         let pDataDict = pRoot["data"] as? [String: Any],
+                         let pSub = pDataDict["subtitle"] as? [String: Any],
+                         let pList = pSub["subtitles"] as? [[String: Any]], !pList.isEmpty {
+                          subtitleTracks.append(contentsOf: pList)
+                      }
+                  }
+
+                  // 3. 若找到 B 站 CC/AI 字幕 URL，下载并解析 JSON
+                  for track in subtitleTracks {
+                      guard var subURLStr = (track["subtitle_url"] as? String), !subURLStr.isEmpty else { continue }
+                      if subURLStr.hasPrefix("//") {
+                          subURLStr = "https:" + subURLStr
+                      }
+                      let lan = ((track["lan"] as? String) ?? "").lowercased()
+                      let isZH = lan.contains("zh")
+                      if let subURL = URL(string: subURLStr),
+                         let (subData, _) = try? await URLSession.shared.data(from: subURL),
+                         let cues = try? parseBilibiliSubtitleJSON(data: subData, alreadyChinese: isZH),
+                         !cues.isEmpty {
+                          return (mergeShortFragments(cues), title, author, mid, pic, relatedVideos)
+                      }
+                  }
+
+                  // 4. 若该 B 站视频未上传外挂 CC 字幕，根据视频标题与简介构建语音导读时间轴（同时等待 WebView 内部拦截器捕获 AI 字幕）
+                  var introCues: [SubtitleCue] = [
+                      SubtitleCue(
+                          index: 0,
+                          startTime: 0.5,
+                          duration: 5.5,
+                          originalText: "正在播放哔哩哔哩视频：\(title)，UP主：\(author)。",
+                          translatedZH: "正在播放哔哩哔哩视频：\(title)，UP主：\(author)。"
+                      )
+                  ]
+                  let cleanDesc = desc.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                  if !cleanDesc.isEmpty && cleanDesc != "-" {
+                      introCues.append(
+                          SubtitleCue(
+                              index: 1,
+                              startTime: 6.5,
+                              duration: 8.0,
+                              originalText: "视频简介：\(String(cleanDesc.prefix(120)))",
+                              translatedZH: "视频简介：\(String(cleanDesc.prefix(120)))"
+                          )
+                      )
+                  }
+                  return (introCues, title, author, mid, pic, relatedVideos)
+              }
+
+              /// 解析 Bilibili `aisubtitle.hdslb.com` 字幕 JSON 格式 (`{"body":[{"from":0.5,"to":2.8,"content":"..."}]}`)
+              func parseBilibiliSubtitleJSON(data: Data, alreadyChinese: Bool) throws -> [SubtitleCue] {
+                  guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                        let body = root["body"] as? [[String: Any]], !body.isEmpty else {
+                      throw TranscriptError.captionParseFailed
+                  }
+                  var cues: [SubtitleCue] = []
+                  for (idx, item) in body.enumerated() {
+                      let fromSec = (item["from"] as? Double) ?? Double((item["from"] as? Int) ?? 0)
+                      let toSec = (item["to"] as? Double) ?? (fromSec + 2.5)
+                      guard let content = item["content"] as? String else { continue }
+                      let clean = content.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                      guard !clean.isEmpty else { continue }
+                      // 检测内容是否已包含中文字符
+                      let containsChinese = clean.range(of: "\\p{Han}", options: .regularExpression) != nil
+                      let isZH = alreadyChinese || containsChinese
+                      cues.append(
+                          SubtitleCue(
+                              index: idx,
+                              startTime: fromSec,
+                              duration: max(0.8, toSec - fromSec),
+                              originalText: clean,
+                              translatedZH: isZH ? clean : nil
+                          )
+                      )
+                  }
+                  return cues
+              }
+
+              func fetchBilibiliRelatedVideos(bvid: String, currentAuthor: String) async -> [VideoItem] {
+                  guard let url = URL(string: "https://api.bilibili.com/x/web-interface/archive/related?bvid=\(bvid)") else {
+                      return []
+                  }
+                  var req = URLRequest(url: url)
+                  req.setValue("https://www.bilibili.com/video/\(bvid)", forHTTPHeaderField: "Referer")
+                  guard let (data, _) = try? await URLSession.shared.data(for: req),
+                        let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                        let list = root["data"] as? [[String: Any]] else {
+                      return []
+                  }
+                  var items: [VideoItem] = []
+                  for entry in list.prefix(24) {
+                      guard let vid = entry["bvid"] as? String, !vid.isEmpty else { continue }
+                      let title = (entry["title"] as? String) ?? vid
+                      let pic = (entry["pic"] as? String) ?? ""
+                      let durSec = (entry["duration"] as? Int) ?? 0
+                      let durText = durSec > 0 ? String(format: "%02d:%02d", durSec / 60, durSec % 60) : ""
+                      let owner = entry["owner"] as? [String: Any]
+                      let upName = (owner?["name"] as? String) ?? currentAuthor
+                      let midStr = String((owner?["mid"] as? Int) ?? 0)
+                      let isSame = !currentAuthor.isEmpty && upName == currentAuthor
+
+                      items.append(
+                          VideoItem(
+                              platform: .bilibili,
+                              videoID: vid,
+                              title: title,
+                              author: upName,
+                              channelID: midStr,
+                              durationText: durText,
+                              customCoverURL: pic,
+                              isSameAuthor: isSame
+                          )
+                      )
+                  }
+                  return items
+              }
+
+              // MARK: - YouTube 字幕、详情与同作者视频提取
+              func fetchYouTubeMergedCues(for videoID: String, preferYouTubeBuiltInTranslation: Bool) async throws -> (cues: [SubtitleCue], title: String?, author: String?, channelID: String?, coverURL: String?, channelVideos: [VideoItem]) {
                   if let res = try? await fetchViaInnerTube(
                       videoID: videoID,
                       clientName: "ANDROID",
@@ -1071,7 +1489,7 @@ jobs:
                       preferYouTubeBuiltInTranslation: preferYouTubeBuiltInTranslation
                   ), !res.cues.isEmpty {
                       let moreVideos = await fetchChannelAndRelatedVideos(videoID: videoID, author: res.author ?? "", channelID: res.channelID ?? "")
-                      return (mergeShortFragments(res.cues), res.title, res.author, res.channelID, moreVideos)
+                      return (mergeShortFragments(res.cues), res.title, res.author, res.channelID, nil, moreVideos)
                   }
 
                   if let res = try? await fetchViaInnerTube(
@@ -1082,7 +1500,7 @@ jobs:
                       preferYouTubeBuiltInTranslation: preferYouTubeBuiltInTranslation
                   ), !res.cues.isEmpty {
                       let moreVideos = await fetchChannelAndRelatedVideos(videoID: videoID, author: res.author ?? "", channelID: res.channelID ?? "")
-                      return (mergeShortFragments(res.cues), res.title, res.author, res.channelID, moreVideos)
+                      return (mergeShortFragments(res.cues), res.title, res.author, res.channelID, nil, moreVideos)
                   }
 
                   if let res = try? await fetchViaInnerTube(
@@ -1093,7 +1511,7 @@ jobs:
                       preferYouTubeBuiltInTranslation: preferYouTubeBuiltInTranslation
                   ), !res.cues.isEmpty {
                       let moreVideos = await fetchChannelAndRelatedVideos(videoID: videoID, author: res.author ?? "", channelID: res.channelID ?? "")
-                      return (mergeShortFragments(res.cues), res.title, res.author, res.channelID, moreVideos)
+                      return (mergeShortFragments(res.cues), res.title, res.author, res.channelID, nil, moreVideos)
                   }
 
                   let watchURL = URL(string: "https://www.youtube.com/watch?v=\(videoID)")!
@@ -1111,13 +1529,19 @@ jobs:
                   let tracks = try extractTracksFromHTML(html)
                   if let cues = try? await downloadAndParseTrack(from: tracks, preferYouTubeBuiltInTranslation: preferYouTubeBuiltInTranslation), !cues.isEmpty {
                       let moreVideos = await fetchChannelAndRelatedVideos(videoID: videoID, author: "", channelID: "")
-                      return (mergeShortFragments(cues), nil, nil, nil, moreVideos)
+                      return (mergeShortFragments(cues), nil, nil, nil, nil, moreVideos)
                   }
                   throw TranscriptError.captionParseFailed
               }
 
+              /// 解析由 WKWebView 同源拦截器捕获到的原始字幕（自动识别 YouTube JSON3 / XML 与 Bilibili `body` JSON）
               func parseRawCaptionPayload(_ rawText: String, translatedRawText: String?, alreadyChinese: Bool) -> [SubtitleCue] {
                   guard let data = rawText.data(using: .utf8) else { return [] }
+                  // 优先检测是否为 Bilibili 字幕 JSON (`{"body":[{"from":...,"to":...,"content":...}]}`)
+                  if let biliCues = try? parseBilibiliSubtitleJSON(data: data, alreadyChinese: alreadyChinese), !biliCues.isEmpty {
+                      return mergeShortFragments(biliCues)
+                  }
+
                   var baseCues: [SubtitleCue] = []
                   if let jsonCues = try? parseJSON3Captions(data: data, alreadyChinese: alreadyChinese), !jsonCues.isEmpty {
                       baseCues = jsonCues
@@ -1212,14 +1636,14 @@ jobs:
                       req.httpBody = try? JSONSerialization.data(withJSONObject: body)
                       if let (data, _) = try? await URLSession.shared.data(for: req),
                          let json = try? JSONSerialization.jsonObject(with: data) {
-                          extractVideoRenderers(from: json, currentVideoID: videoID, currentAuthor: author, into: &collected)
+                          extractYouTubeVideoRenderers(from: json, currentVideoID: videoID, currentAuthor: author, into: &collected)
                       }
                   }
                   return collected
               }
 
-              func extractVideoRenderers(from node: Any, currentVideoID: String, currentAuthor: String, into list: inout [VideoItem]) {
-                  guard list.count < 24 else { return }
+              func extractYouTubeVideoRenderers(from node: Any, currentVideoID: String, currentAuthor: String, into list: inout [VideoItem]) {
+                  guard list.count < 25 else { return }
                   if let dict = node as? [String: Any] {
                       if let vr = (dict["videoRenderer"] as? [String: Any]) ?? (dict["compactVideoRenderer"] as? [String: Any]),
                          let vid = vr["videoId"] as? String, vid.count == 11, vid != currentVideoID {
@@ -1227,10 +1651,11 @@ jobs:
                           let byline = extractText(from: vr["ownerText"] ?? vr["shortBylineText"] ?? vr["longBylineText"])
                           let dur = extractText(from: vr["lengthText"])
                           if !title.isEmpty && !list.contains(where: { $0.videoID == vid }) {
-                              let resolvedAuthor = byline.isEmpty ? currentAuthor : byline
+                              let resolvedAuthor = byline.isEmpty ? (currentAuthor.isEmpty ? "YouTube Creator" : currentAuthor) : byline
                               let isSame = !currentAuthor.isEmpty && resolvedAuthor.lowercased().contains(currentAuthor.lowercased())
                               list.append(
                                   VideoItem(
+                                      platform: .youtube,
                                       videoID: vid,
                                       title: title,
                                       author: resolvedAuthor,
@@ -1241,11 +1666,11 @@ jobs:
                           }
                       }
                       for (_, v) in dict {
-                          extractVideoRenderers(from: v, currentVideoID: currentVideoID, currentAuthor: currentAuthor, into: &list)
+                          extractYouTubeVideoRenderers(from: v, currentVideoID: currentVideoID, currentAuthor: currentAuthor, into: &list)
                       }
                   } else if let arr = node as? [Any] {
                       for item in arr {
-                          extractVideoRenderers(from: item, currentVideoID: currentVideoID, currentAuthor: currentAuthor, into: &list)
+                          extractYouTubeVideoRenderers(from: item, currentVideoID: currentVideoID, currentAuthor: currentAuthor, into: &list)
                       }
                   }
               }
@@ -1508,13 +1933,9 @@ jobs:
                      .replacingOccurrences(of: "&#x27;", with: "'")
               }
 
-              /// 解决「上一句没读完就被下一句打断」的源头优化：
-              /// 1. 修正 YouTube 自动字幕常见的重叠时间戳（若前一句 endTime > 后一句 startTime，将前一句截断至后一句开始时间）
-              /// 2. 将细碎短句（时长 < 3.2s 或未遇到句末标点且总长 <= 9.0s）合并为完整语义句，给语音合成留出充足、连贯的朗读时间窗
               func mergeShortFragments(_ cues: [SubtitleCue]) -> [SubtitleCue] {
                   guard !cues.isEmpty else { return [] }
 
-                  // 第一步：消除相邻字幕的重叠时间戳 (Overlap Normalization)
                   var normalized: [SubtitleCue] = []
                   for i in 0..<cues.count {
                       let current = cues[i]
@@ -1537,7 +1958,6 @@ jobs:
                       )
                   }
 
-                  // 第二步：合并细碎短句为 3.2s ~ 9.0s 的自然完整配音单元
                   var merged: [SubtitleCue] = []
                   var buffer = normalized[0]
 
@@ -1690,7 +2110,7 @@ jobs:
                   }.joined(separator: "\n")
 
                   let systemPrompt = """
-                  你是一位专业的 YouTube 视频中文同声传译配音员。
+                  你是一位专业的视频中文同声传译配音员。
                   请将输入的每行字幕翻译为精炼、自然、口语化的简体中文配音台词，严格控制字数不超过括号内的建议字数，确保在限定时间内从容读完。
                   严格按原行号格式输出：`[行号] 中文配音台词`，不要添加任何多余解释。
                   """
@@ -2255,8 +2675,9 @@ jobs:
 
           enum WorkspaceTab: String, CaseIterable, Identifiable {
               case subtitles = "双语字幕"
-              case authorVideos = "同作者与推荐"
-              case favorites = "我的收藏"
+              case search = "视频搜索"
+              case authorVideos = "同作者/推荐"
+              case favorites = "收藏夹"
 
               var id: String { rawValue }
           }
@@ -2268,11 +2689,18 @@ jobs:
               @State private var urlInput: String = "https://www.youtube.com/watch?v=aircAruvnKk"
               @State private var cues: [SubtitleCue] = []
               @State private var isLoadingCaptions: Bool = false
-              @State private var statusMessage: String = "准备就绪：加载视频后将自动提取字幕并开启实时中文配音"
+              @State private var statusMessage: String = "支持粘贴 YouTube / Bilibili 链接或直接在下方「视频搜索」中查找视频"
               @State private var showSettings: Bool = false
               @State private var activeTab: WorkspaceTab = .subtitles
               @State private var filterSameAuthorOnly: Bool = false
 
+              // 双平台视频搜索状态
+              @State private var searchQuery: String = ""
+              @State private var searchPlatform: VideoPlatform = .youtube
+              @State private var searchResults: [VideoItem] = []
+              @State private var isSearching: Bool = false
+
+              // 进度条拖拽状态
               @State private var isScrubbing: Bool = false
               @State private var scrubTime: TimeInterval = 0
 
@@ -2293,7 +2721,7 @@ jobs:
               }
 
               var isCurrentVideoFavorited: Bool {
-                  favorites.contains(where: { $0.videoID == playerController.currentVideoID })
+                  favorites.contains(where: { $0.videoID == playerController.currentVideoID && $0.platform == playerController.currentPlatform })
               }
 
               var filteredRelatedVideos: [VideoItem] {
@@ -2309,16 +2737,22 @@ jobs:
               var body: some View {
                   NavigationStack {
                       VStack(spacing: 0) {
-                          // 1. 顶部 YouTube URL 输入栏
+                          // 1. 顶部双平台智能输入栏（支持 YouTube 链接/ID、Bilibili 链接/BV号/b23.tv，若输入普通文字则自动跳转搜索！）
                           HStack(spacing: 8) {
-                              Image(systemName: "play.rectangle.fill")
-                                  .foregroundStyle(.red)
-                              TextField("粘贴 YouTube 链接或 11 位 Video ID", text: $urlInput)
+                              Text(playerController.currentPlatform.rawValue)
+                                  .font(.caption2.bold())
+                                  .padding(.horizontal, 6)
+                                  .padding(.vertical, 3)
+                                  .background(playerController.currentPlatform == .youtube ? Color.red : Color.pink)
+                                  .foregroundStyle(.white)
+                                  .clipShape(RoundedRectangle(cornerRadius: 4))
+
+                              TextField("粘贴 YT / B站链接(含BV号/b23.tv) 或输入关键词", text: $urlInput)
                                   .textInputAutocapitalization(.never)
                                   .disableAutocorrection(true)
                                   .font(.subheadline)
                                   .submitLabel(.go)
-                                  .onSubmit { loadNewVideo(from: urlInput) }
+                                  .onSubmit { handleSmartTopInput() }
 
                               if !urlInput.isEmpty {
                                   Button {
@@ -2329,18 +2763,18 @@ jobs:
                                   }
                               }
 
-                              Button("加载配音") {
-                                  loadNewVideo(from: urlInput)
+                              Button("加载/搜索") {
+                                  handleSmartTopInput()
                               }
                               .buttonStyle(.borderedProminent)
-                              .tint(.red)
+                              .tint(playerController.currentPlatform == .youtube ? .red : .pink)
                               .controlSize(.small)
                           }
                           .padding(.horizontal, 12)
                           .padding(.vertical, 8)
                           .background(Color(.secondarySystemBackground))
 
-                          // 2. 16:9 YouTube 原生移动网页播放器
+                          // 2. 16:9 双平台原生内嵌播放器
                           ZStack(alignment: .bottomTrailing) {
                               YouTubeWebPlayerView(controller: playerController)
                                   .aspectRatio(16.0 / 9.0, contentMode: .fit)
@@ -2381,7 +2815,7 @@ jobs:
                                           }
                                       }
                                   )
-                                  .tint(.red)
+                                  .tint(playerController.currentPlatform == .youtube ? .red : .pink)
 
                                   Text(formatTimestamp(playerController.duration))
                                       .font(.caption2.monospacedDigit())
@@ -2403,7 +2837,7 @@ jobs:
                                   } label: {
                                       Image(systemName: playerController.playerState == .playing ? "pause.circle.fill" : "play.circle.fill")
                                           .font(.title2)
-                                          .foregroundStyle(.red)
+                                          .foregroundStyle(playerController.currentPlatform == .youtube ? .red : .pink)
                                   }
 
                                   Button {
@@ -2440,7 +2874,7 @@ jobs:
                                       Text(playerController.currentTitle)
                                           .font(.caption.weight(.medium))
                                           .lineLimit(1)
-                                      Text("作者: \(playerController.currentAuthor)")
+                                      Text("\(playerController.currentPlatform == .bilibili ? "UP主" : "频道"): \(playerController.currentAuthor)")
                                           .font(.caption2)
                                           .foregroundStyle(.secondary)
                                           .lineLimit(1)
@@ -2474,7 +2908,6 @@ jobs:
                                       if !enabled { dubbingEngine.stopImmediately() }
                                   }
 
-                                  // 翻译渠道选择
                                   Menu {
                                       Picker("翻译渠道", selection: $translationProviderRaw) {
                                           ForEach(TranslationProvider.allCases) { provider in
@@ -2494,7 +2927,6 @@ jobs:
                                       retranslateCurrentCues()
                                   }
 
-                                  // 配音引擎选择
                                   Menu {
                                       Picker("配音引擎", selection: $dubbingEngine.voiceEngine) {
                                           ForEach(DubbingVoiceEngine.allCases) { engine in
@@ -2514,7 +2946,6 @@ jobs:
                                       dubbingEngine.clearPrefetchCache()
                                   }
 
-                                  // 当前配音模式专属【音色选择】菜单（每种配音模式均提供多音色切换！）
                                   voiceSelectorMenuForCurrentEngine
 
                                   if isLoadingCaptions {
@@ -2531,18 +2962,12 @@ jobs:
                               .padding(.vertical, 6)
                           }
 
-                          // 5. 三栏切换器（双语字幕 / 同作者与推荐 / 我的收藏）
+                          // 5. 四栏工作台切换器（双语字幕 / 视频搜索 / 同作者推荐 / 收藏夹）
                           Picker("功能面板", selection: $activeTab) {
-                              ForEach(WorkspaceTab.allCases) { tab in
-                                  switch tab {
-                                  case .subtitles:
-                                      Text("双语字幕 (\(cues.count))").tag(tab)
-                                  case .authorVideos:
-                                      Text("同作者/推荐 (\(playerController.relatedVideos.count))").tag(tab)
-                                  case .favorites:
-                                      Text("收藏夹 (\(favorites.count))").tag(tab)
-                                  }
-                              }
+                              Text("字幕(\(cues.count))").tag(WorkspaceTab.subtitles)
+                              Text("视频搜索").tag(WorkspaceTab.search)
+                              Text("同作者(\(playerController.relatedVideos.count))").tag(WorkspaceTab.authorVideos)
+                              Text("收藏(\(favorites.count))").tag(WorkspaceTab.favorites)
                           }
                           .pickerStyle(.segmented)
                           .padding(.horizontal, 12)
@@ -2554,13 +2979,15 @@ jobs:
                           switch activeTab {
                           case .subtitles:
                               subtitlesListView
+                          case .search:
+                              videoSearchView
                           case .authorVideos:
                               authorAndRelatedVideosView
                           case .favorites:
                               favoritesListView
                           }
                       }
-                      .navigationTitle("YT 实时中文配音")
+                      .navigationTitle("YT & B站 实时中文配音")
                       .navigationBarTitleDisplayMode(.inline)
                       .toolbar {
                           ToolbarItem(placement: .topBarLeading) {
@@ -2590,7 +3017,7 @@ jobs:
                       .task {
                           loadFavoritesFromStorage()
                           setupCallbacks()
-                          await fetchAndTranslateSubtitles(for: playerController.currentVideoID)
+                          await fetchAndTranslateSubtitles(for: playerController.currentVideoID, platform: playerController.currentPlatform)
                       }
                   }
               }
@@ -2684,9 +3111,11 @@ jobs:
                                       .font(.body.weight(isActive ? .semibold : .regular))
                                       .foregroundStyle(cue.translatedZH == nil ? .secondary : .primary)
 
-                                  Text(cue.originalText)
-                                      .font(.caption)
-                                      .foregroundStyle(.secondary)
+                                  if cue.originalText != cue.translatedZH {
+                                      Text(cue.originalText)
+                                          .font(.caption)
+                                          .foregroundStyle(.secondary)
+                                  }
                               }
                               .padding(.vertical, 4)
                           }
@@ -2703,11 +3132,85 @@ jobs:
                   }
               }
 
-              // MARK: - 子视图 2：同作者频道视频与相关推荐
+              // MARK: - 子视图 2：双平台视频搜索面板 (支持 YouTube 与 Bilibili 实时搜索)
+              private var videoSearchView: some View {
+                  VStack(spacing: 0) {
+                      HStack(spacing: 8) {
+                          Picker("搜索平台", selection: $searchPlatform) {
+                              Text("YouTube").tag(VideoPlatform.youtube)
+                              Text("Bilibili").tag(VideoPlatform.bilibili)
+                          }
+                          .pickerStyle(.segmented)
+                          .frame(width: 145)
+                          .onChange(of: searchPlatform) { _, _ in
+                              if !searchQuery.trimmingCharacters(in: .whitespaces).isEmpty {
+                                  performVideoSearch()
+                              }
+                          }
+
+                          HStack(spacing: 6) {
+                              Image(systemName: "magnifyingglass")
+                                  .foregroundStyle(.secondary)
+                              TextField("搜索 \(searchPlatform.rawValue) 视频关键词...", text: $searchQuery)
+                                  .textInputAutocapitalization(.never)
+                                  .disableAutocorrection(true)
+                                  .font(.subheadline)
+                                  .submitLabel(.search)
+                                  .onSubmit { performVideoSearch() }
+
+                              if !searchQuery.isEmpty {
+                                  Button {
+                                      searchQuery = ""
+                                  } label: {
+                                      Image(systemName: "xmark.circle.fill")
+                                          .foregroundStyle(.secondary)
+                                  }
+                              }
+                          }
+                          .padding(.horizontal, 8)
+                          .padding(.vertical, 6)
+                          .background(Color(.systemBackground))
+                          .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                          Button("搜索") {
+                              performVideoSearch()
+                          }
+                          .buttonStyle(.borderedProminent)
+                          .tint(searchPlatform == .youtube ? .red : .pink)
+                          .controlSize(.small)
+                      }
+                      .padding(.horizontal, 12)
+                      .padding(.vertical, 8)
+                      .background(Color(.secondarySystemBackground).opacity(0.6))
+
+                      if isSearching {
+                          Spacer()
+                          ProgressView("正在搜索 \(searchPlatform.rawValue) 视频...")
+                          Spacer()
+                      } else if searchResults.isEmpty {
+                          ContentUnavailableView(
+                              "搜索 YouTube 或 Bilibili 视频",
+                              systemImage: "magnifyingglass.circle",
+                              description: Text("输入任意中英文关键词并选择平台，点击搜索结果即可直接播放并开启实时流利中文配音")
+                          )
+                      } else {
+                          List(searchResults) { item in
+                              Button {
+                                  selectAndPlayVideoItem(item)
+                              } label: {
+                                  videoRowView(item: item)
+                              }
+                          }
+                          .listStyle(.plain)
+                      }
+                  }
+              }
+
+              // MARK: - 子视图 3：同作者频道/UP主视频与相关推荐
               private var authorAndRelatedVideosView: some View {
                   VStack(spacing: 0) {
                       HStack {
-                          Label("当前频道: \(playerController.currentAuthor)", systemImage: "person.crop.square.fill")
+                          Label("当前\(playerController.currentPlatform == .bilibili ? "UP主" : "频道"): \(playerController.currentAuthor)", systemImage: "person.crop.square.fill")
                               .font(.caption.weight(.semibold))
                               .foregroundStyle(.primary)
                           Spacer()
@@ -2729,9 +3232,7 @@ jobs:
                       } else {
                           List(filteredRelatedVideos) { item in
                               Button {
-                                  urlInput = "https://www.youtube.com/watch?v=\(item.videoID)"
-                                  activeTab = .subtitles
-                                  loadNewVideo(from: item.videoID)
+                                  selectAndPlayVideoItem(item)
                               } label: {
                                   videoRowView(item: item)
                               }
@@ -2741,22 +3242,20 @@ jobs:
                   }
               }
 
-              // MARK: - 子视图 3：收藏夹列表
+              // MARK: - 子视图 4：收藏夹列表
               private var favoritesListView: some View {
                   Group {
                       if favorites.isEmpty {
                           ContentUnavailableView(
                               "暂无收藏视频",
                               systemImage: "star.slash",
-                              description: Text("点击播放器下方右侧的星标按钮，即可将喜欢的 YouTube 视频加入收藏夹随时回看配音")
+                              description: Text("点击播放器下方右侧的星标按钮，即可将喜欢的 YouTube 或 Bilibili 视频加入收藏夹随时回看")
                           )
                       } else {
                           List {
                               ForEach(favorites) { item in
                                   Button {
-                                      urlInput = "https://www.youtube.com/watch?v=\(item.videoID)"
-                                      activeTab = .subtitles
-                                      loadNewVideo(from: item.videoID)
+                                      selectAndPlayVideoItem(item)
                                   } label: {
                                       videoRowView(item: item)
                                   }
@@ -2791,17 +3290,26 @@ jobs:
                               .lineLimit(2)
 
                           HStack(spacing: 6) {
+                              Text(item.platform.rawValue)
+                                  .font(.system(size: 9, weight: .bold))
+                                  .padding(.horizontal, 4)
+                                  .padding(.vertical, 1)
+                                  .background(item.platform == .youtube ? Color.red.opacity(0.15) : Color.pink.opacity(0.15))
+                                  .foregroundStyle(item.platform == .youtube ? .red : .pink)
+                                  .clipShape(RoundedRectangle(cornerRadius: 3))
+
                               Text(item.author)
                                   .font(.caption)
                                   .foregroundStyle(.secondary)
+                                  .lineLimit(1)
 
                               if item.isSameAuthor {
                                   Text("同作者")
                                       .font(.caption2.bold())
                                       .padding(.horizontal, 5)
                                       .padding(.vertical, 1)
-                                      .background(Color.red.opacity(0.14))
-                                      .foregroundStyle(.red)
+                                      .background(Color.orange.opacity(0.14))
+                                      .foregroundStyle(.orange)
                                       .clipShape(Capsule())
                               }
 
@@ -2856,32 +3364,66 @@ jobs:
                   }
 
                   playerController.onWebViewCaptionsCaptured = { rawPayload, translatedPayload, isChinese in
-                      guard self.cues.isEmpty else { return }
                       let parsed = transcriptService.parseRawCaptionPayload(
                           rawPayload,
                           translatedRawText: selectedTranslationProvider == .youtubeBuiltIn ? translatedPayload : nil,
                           alreadyChinese: isChinese
                       )
                       guard !parsed.isEmpty else { return }
-                      self.cues = parsed
-                      self.isLoadingCaptions = false
-                      Task {
-                          await translateLoadedCues(parsed)
+                      // 若当前仅有 1~2 条 B 站简介导读或为空，则用真实捕获到的字幕替换
+                      if self.cues.count <= 2 {
+                          self.cues = parsed
+                          self.isLoadingCaptions = false
+                          Task {
+                              await translateLoadedCues(parsed)
+                          }
                       }
                   }
               }
 
-              func loadNewVideo(from input: String) {
-                  guard let vid = YouTubePlayerController.extractVideoID(from: input) else {
-                      statusMessage = "链接格式无效，请输入有效的 YouTube URL 或 11 位 ID"
-                      return
+              /// 顶部输入框智能路由：若识别为 YouTube/Bilibili 链接或 ID 则直接播放，否则作为搜索词自动跳转「视频搜索」面板！
+              func handleSmartTopInput() {
+                  let input = urlInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                  guard !input.isEmpty else { return }
+                  Task {
+                      if let parsed = await YouTubePlayerController.parseInput(input) {
+                          activeTab = .subtitles
+                          startPlaying(platform: parsed.platform, videoID: parsed.videoID)
+                      } else {
+                          searchQuery = input
+                          activeTab = .search
+                          performVideoSearch()
+                      }
                   }
+              }
+
+              func performVideoSearch() {
+                  let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+                  guard !q.isEmpty else { return }
+                  isSearching = true
+                  Task {
+                      let results = await transcriptService.searchVideos(keyword: q, platform: searchPlatform)
+                      self.searchResults = results
+                      self.isSearching = false
+                  }
+              }
+
+              func selectAndPlayVideoItem(_ item: VideoItem) {
+                  urlInput = item.watchURLString
+                  playerController.currentTitle = item.title
+                  playerController.currentAuthor = item.author
+                  playerController.currentCoverURL = item.customCoverURL
+                  activeTab = .subtitles
+                  startPlaying(platform: item.platform, videoID: item.videoID)
+              }
+
+              func startPlaying(platform: VideoPlatform, videoID: String) {
                   dubbingEngine.stopImmediately()
                   dubbingEngine.clearPrefetchCache()
                   cues = []
-                  playerController.loadVideo(id: vid)
+                  playerController.loadVideo(platform: platform, id: videoID)
                   Task {
-                      await fetchAndTranslateSubtitles(for: vid)
+                      await fetchAndTranslateSubtitles(for: videoID, platform: platform)
                   }
               }
 
@@ -2898,13 +3440,14 @@ jobs:
                   }
               }
 
-              func fetchAndTranslateSubtitles(for videoID: String) async {
+              func fetchAndTranslateSubtitles(for videoID: String, platform: VideoPlatform) async {
                   isLoadingCaptions = true
-                  statusMessage = "正在提取字幕与同作者视频列表..."
+                  statusMessage = "正在提取 \(platform.rawValue) 字幕与同作者推荐列表..."
                   do {
                       let preferYTBuiltIn = (selectedTranslationProvider == .youtubeBuiltIn)
                       let result = try await transcriptService.fetchMergedCues(
                           for: videoID,
+                          platform: platform,
                           preferYouTubeBuiltInTranslation: preferYTBuiltIn
                       )
                       if let title = result.title, !title.isEmpty {
@@ -2915,6 +3458,9 @@ jobs:
                       }
                       if let cid = result.channelID, !cid.isEmpty {
                           playerController.currentChannelID = cid
+                      }
+                      if let cover = result.coverURL, !cover.isEmpty {
+                          playerController.currentCoverURL = cover
                       }
                       if !result.channelVideos.isEmpty {
                           playerController.relatedVideos = result.channelVideos
@@ -2934,7 +3480,7 @@ jobs:
               func translateLoadedCues(_ loadedCues: [SubtitleCue]) async {
                   let alreadyDoneCount = loadedCues.filter { !($0.translatedZH ?? "").isEmpty }.count
                   if alreadyDoneCount == loadedCues.count {
-                      statusMessage = "YouTube 官方中文字幕已全部就绪 (\(loadedCues.count) 句)"
+                      statusMessage = "中文字幕与配音台词已全部就绪 (\(loadedCues.count) 句)"
                       return
                   }
 
@@ -2977,14 +3523,16 @@ jobs:
               }
 
               func toggleFavoriteCurrentVideo() {
-                  if let idx = favorites.firstIndex(where: { $0.videoID == playerController.currentVideoID }) {
+                  if let idx = favorites.firstIndex(where: { $0.videoID == playerController.currentVideoID && $0.platform == playerController.currentPlatform }) {
                       favorites.remove(at: idx)
                   } else {
                       let item = VideoItem(
+                          platform: playerController.currentPlatform,
                           videoID: playerController.currentVideoID,
                           title: playerController.currentTitle,
                           author: playerController.currentAuthor,
-                          channelID: playerController.currentChannelID
+                          channelID: playerController.currentChannelID,
+                          customCoverURL: playerController.currentCoverURL
                       )
                       favorites.insert(item, at: 0)
                   }
