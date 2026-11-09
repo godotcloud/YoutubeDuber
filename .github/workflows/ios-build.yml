@@ -1,4 +1,4 @@
-name: iOS Build & Unsigned IPA (Zero-Unzip Standalone Workflow v3.8.1)
+name: iOS Build & Unsigned IPA (Zero-Unzip Standalone Workflow v3.9)
 
 on:
   push:
@@ -28,9 +28,9 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Bootstrap iOS Project Source Files (免解压自动写入完整工程源码 v3.8.1)
+      - name: Bootstrap iOS Project Source Files (免解压自动写入完整工程源码 v3.9)
         run: |
-          echo "正在生成/更新完整 iOS 工程源码 v3.8.1（含上下文感知同传翻译、防黑屏修复与 AVAudioEngine 变调音色引擎）..."
+          echo "正在生成/更新完整 iOS 工程源码 v3.9（含上下文感知同传翻译、防黑屏修复与 AVAudioEngine 变调音色引擎）..."
           mkdir -p YouTubeDubber/Models YouTubeDubber/Services YouTubeDubber/Views
           cat << 'EOF_FILE' > project.yml
           name: YouTubeDubber
@@ -74,8 +74,8 @@ jobs:
               settings:
                 base:
                   PRODUCT_BUNDLE_IDENTIFIER: com.ai.youtubedubber.app
-                  MARKETING_VERSION: "3.8.1"
-                  CURRENT_PROJECT_VERSION: "14"
+                  MARKETING_VERSION: "3.9.0"
+                  CURRENT_PROJECT_VERSION: "15"
                   CODE_SIGN_STYLE: Automatic
                   ENABLE_USER_SCRIPT_SANDBOXING: NO
           EOF_FILE
@@ -99,9 +99,9 @@ jobs:
               <key>CFBundlePackageType</key>
               <string>APPL</string>
               <key>CFBundleShortVersionString</key>
-              <string>3.8.1</string>
+              <string>3.9.0</string>
               <key>CFBundleVersion</key>
-              <string>14</string>
+              <string>15</string>
               <key>UILaunchScreen</key>
               <dict/>
               <key>UIBackgroundModes</key>
@@ -586,7 +586,23 @@ jobs:
           import SwiftUI
           import AVKit
 
-          /// 原生 iOS AirPlay 无线投屏按钮（封装 AVKit.AVRoutePickerView，支持一键投屏视频画面至 Apple TV / 智能电视 / Mac）
+          /// 原生 iOS AirPlay 无线投屏按钮（封装 AVKit.AVRoutePickerView，支持在任意按钮中编程触发原生投屏面板）
+          @MainActor
+          final class AirPlayPickerCoordinator {
+              static let shared = AirPlayPickerCoordinator()
+              weak var routePickerView: AVRoutePickerView?
+
+              func presentSystemAirPlaySheet() {
+                  guard let picker = routePickerView else { return }
+                  for subview in picker.subviews {
+                      if let btn = subview as? UIButton {
+                          btn.sendActions(for: .touchUpInside)
+                          return
+                      }
+                  }
+              }
+          }
+
           struct AirPlayRoutePickerButton: UIViewRepresentable {
               func makeUIView(context: Context) -> AVRoutePickerView {
                   let picker = AVRoutePickerView(frame: CGRect(x: 0, y: 0, width: 32, height: 32))
@@ -594,10 +610,13 @@ jobs:
                   picker.tintColor = UIColor.label
                   picker.activeTintColor = UIColor.systemRed
                   picker.backgroundColor = .clear
+                  AirPlayPickerCoordinator.shared.routePickerView = picker
                   return picker
               }
 
-              func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
+              func updateUIView(_ uiView: AVRoutePickerView, context: Context) {
+                  AirPlayPickerCoordinator.shared.routePickerView = uiView
+              }
           }
 
           /// 负责 WKWebView 与 YouTube / Bilibili 双平台原生 HTML5 <video> 播放器、去广告、AirPlay 视频画面投屏及字幕拦截的双向通信
@@ -836,8 +855,10 @@ jobs:
                   evaluateJS("window.__setCleanLayout && window.__setCleanLayout(\(flag));")
               }
 
-              /// 触发 HTML5 <video> 原生 AirPlay 视频画面无线投屏选择器
+              /// 触发 AirPlay 无线投屏选择器（同时触发原生 AVRoutePickerView 视频设备选择器与 WebKit <video> 投屏）
               func triggerVideoAirPlayPicker() {
+                  try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback, options: [.mixWithOthers])
+                  AirPlayPickerCoordinator.shared.presentSystemAirPlaySheet()
                   evaluateJS("window.__triggerAirPlay && window.__triggerAirPlay();")
               }
 
@@ -1051,9 +1072,9 @@ jobs:
                       // 关键：在 iOS WKWebView 中禁用 ManagedMediaSource / MediaSource (blob: 流)，
                       // 强制 YouTube 移动版下发 iOS 原生 HLS/MP4 视频流，从而让 AirPlay 投屏能够完整传输高清视频画面（彻底解决 blob: 流投屏只有声音没有画面的问题）！
                       try {
-                          delete window.ManagedMediaSource;
-                          delete window.MediaSource;
-                          delete window.WebKitMediaSource;
+                          Object.defineProperty(window, 'ManagedMediaSource', { get: function() { return undefined; }, configurable: true });
+                          Object.defineProperty(window, 'MediaSource', { get: function() { return undefined; }, configurable: true });
+                          Object.defineProperty(window, 'WebKitMediaSource', { get: function() { return undefined; }, configurable: true });
                       } catch (e) {}
 
                       let adBlockEnabled = true;
@@ -1564,6 +1585,30 @@ jobs:
                                   }
                                   p = p.parentElement;
                               }
+                          }
+
+                          // 在播放器右上角注入具有真实 WebKit 用户手势上下文 (UserGestureIndicator) 的网页端「投屏/全屏」悬浮按钮
+                          if (!document.getElementById('__yt_inplayer_airplay_btn') && document.body) {
+                              const castBtn = document.createElement('button');
+                              castBtn.id = '__yt_inplayer_airplay_btn';
+                              castBtn.textContent = '📺 投屏';
+                              castBtn.style.cssText = 'position:fixed;top:8px;right:8px;z-index:2147483647;background:rgba(20,20,24,0.72);color:#fff;border:1px solid rgba(255,255,255,0.28);border-radius:14px;padding:4px 10px;font-size:11px;font-weight:600;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);';
+                              castBtn.addEventListener('click', function(ev) {
+                                  ev.stopPropagation();
+                                  const vid = document.querySelector('video');
+                                  if (!vid) return;
+                                  vid.disableRemotePlayback = false;
+                                  vid.removeAttribute('disableremoteplayback');
+                                  vid.setAttribute('x-webkit-airplay', 'allow');
+                                  vid.setAttribute('airplay', 'allow');
+                                  if (vid.webkitShowPlaybackTargetPicker) {
+                                      try { vid.webkitShowPlaybackTargetPicker(); return; } catch (e) {}
+                                  }
+                                  if (vid.webkitEnterFullscreen) {
+                                      try { vid.webkitEnterFullscreen(); return; } catch (e) {}
+                                  }
+                              });
+                              document.body.appendChild(castBtn);
                           }
 
                           // 仅在首次发现 <video> 元素时绑定一次 AirPlay 属性与防意外暂停守护事件
@@ -3127,25 +3172,26 @@ jobs:
 
                       var chunkMap: [UUID: String] = [:]
 
-                      // 通道 A：Pollinations 极速 GET 文本接口（无需复杂 JSON 握手，CDN 直返纯文本）
-                      if let encPrompt = ("\(sys)\n\n\(usr)").addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-                         let getURL = URL(string: "https://text.pollinations.ai/\(encPrompt)?model=\(modelName)&seed=42") {
-                          var getReq = URLRequest(url: getURL)
-                          getReq.timeoutInterval = 5.5
-                          getReq.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
-                          if let (data, resp) = try? await URLSession.shared.data(for: getReq),
-                             let http = resp as? HTTPURLResponse, http.statusCode == 200,
-                             let txt = String(data: data, encoding: .utf8), !txt.isEmpty {
-                              chunkMap = parseIndexedLLMOutput(content: txt, cues: chunk, polishStyle: polishStyle, videoTitle: videoTitle, videoAuthor: videoAuthor)
+                      if Date() >= Self.pollinationsCooldownUntil {
+                          // 通道 A：Pollinations 极速 GET 文本接口（无需复杂 JSON 握手，CDN 直返纯文本）
+                          if let encPrompt = ("\(sys)\n\n\(usr)").addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+                             let getURL = URL(string: "https://text.pollinations.ai/\(encPrompt)?model=\(modelName)&seed=42") {
+                              var getReq = URLRequest(url: getURL)
+                              getReq.timeoutInterval = 2.6
+                              getReq.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+                              if let (data, resp) = try? await URLSession.shared.data(for: getReq),
+                                 let http = resp as? HTTPURLResponse, http.statusCode == 200,
+                                 let txt = String(data: data, encoding: .utf8), !txt.isEmpty {
+                                  chunkMap = parseIndexedLLMOutput(content: txt, cues: chunk, polishStyle: polishStyle, videoTitle: videoTitle, videoAuthor: videoAuthor)
+                              }
                           }
-                      }
 
-                      // 通道 B：Pollinations POST /openai 兼容接口
-                      if chunkMap.count < chunk.count,
-                         let postURL = URL(string: "https://text.pollinations.ai/openai") {
-                          var postReq = URLRequest(url: postURL)
-                          postReq.httpMethod = "POST"
-                          postReq.timeoutInterval = 6.0
+                          // 通道 B：Pollinations POST /openai 兼容接口
+                          if chunkMap.count < chunk.count,
+                             let postURL = URL(string: "https://text.pollinations.ai/openai") {
+                              var postReq = URLRequest(url: postURL)
+                              postReq.httpMethod = "POST"
+                              postReq.timeoutInterval = 2.8
                           postReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
                           postReq.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
                           let body: [String: Any] = [
@@ -3168,6 +3214,12 @@ jobs:
                               } else if let rawTxt = String(data: data, encoding: .utf8) {
                                   let parsed = parseIndexedLLMOutput(content: rawTxt, cues: chunk, polishStyle: polishStyle, videoTitle: videoTitle, videoAuthor: videoAuthor)
                                   for (k, v) in parsed { chunkMap[k] = v }
+                              }
+                          }
+                      }
+
+                              if chunkMap.isEmpty {
+                                  Self.pollinationsCooldownUntil = Date().addingTimeInterval(90)
                               }
                           }
                       }
@@ -3195,26 +3247,81 @@ jobs:
 
               /// 纯单句直译（供「平台官方内置翻译」兜底使用，不加领域改写）
               func singleLineLiteralGTXTranslate(cues: [SubtitleCue]) async -> [UUID: String] {
+                  return await youdaoContextualBatchTranslate(cues: cues, videoTitle: "", videoAuthor: "", style: .rawLiteral)
+              }
+
+              static var gtxCooldownUntil: Date = .distantPast
+              static var pollinationsCooldownUntil: Date = .distantPast
+
+              /// 有道神经网络多行上下文翻译（国内直连 50ms 极速响应 + 全球可用，彻底解决国内分流规则下 translate.googleapis.com 无法连接导致“正在翻译中文字幕...”卡死的问题！）
+              func youdaoContextualBatchTranslate(
+                  cues: [SubtitleCue],
+                  videoTitle: String,
+                  videoAuthor: String,
+                  style: DubbingPolishStyle
+              ) async -> [UUID: String] {
                   var result: [UUID: String] = [:]
-                  for cue in cues {
-                      guard let encoded = cue.originalText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-                            let url = URL(string: "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-CN&dt=t&q=\(encoded)") else {
-                          continue
-                      }
-                      if let (data, _) = try? await URLSession.shared.data(from: url),
-                         let arr = try? JSONSerialization.jsonObject(with: data) as? [Any],
-                         let sentences = arr.first as? [[Any]] {
-                          let translated = sentences.compactMap { $0.first as? String }.joined()
-                          if !translated.isEmpty {
-                              result[cue.id] = translated.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                  guard !cues.isEmpty else { return result }
+
+                  let multiLine = cues.map {
+                      preprocessSourceWithDomainContext($0.originalText, videoTitle: videoTitle, videoAuthor: videoAuthor)
+                          .replacingOccurrences(of: "\n", with: " ")
+                          .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                  }.joined(separator: "\n")
+
+                  var allowed = CharacterSet.urlQueryAllowed
+                  allowed.remove(charactersIn: "&+=?;#")
+
+                  if let encoded = multiLine.addingPercentEncoding(withAllowedCharacters: allowed),
+                     let url = URL(string: "https://fanyi.youdao.com/translate?&doctype=json&type=AUTO&i=\(encoded)") {
+                      var req = URLRequest(url: url)
+                      req.timeoutInterval = 2.8
+                      req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+                      if let (data, resp) = try? await URLSession.shared.data(for: req),
+                         let http = resp as? HTTPURLResponse, http.statusCode == 200,
+                         let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                         let transArr = json["translateResult"] as? [[[String: Any]]] {
+                          if transArr.count == cues.count {
+                              for (idx, cue) in cues.enumerated() {
+                                  let lineTgt = transArr[idx].compactMap { $0["tgt"] as? String }.joined()
+                                  if !lineTgt.isEmpty {
+                                      result[cue.id] = polishChineseByStyle(lineTgt, duration: cue.duration, style: style, videoTitle: videoTitle, videoAuthor: videoAuthor)
+                                  }
+                              }
+                              if result.count == cues.count {
+                                  return result
+                              }
                           }
+                      }
+                  }
+
+                  // 逐句极速兜底
+                  for cue in cues where result[cue.id] == nil {
+                      let prepped = preprocessSourceWithDomainContext(cue.originalText, videoTitle: videoTitle, videoAuthor: videoAuthor)
+                      if let encoded = prepped.addingPercentEncoding(withAllowedCharacters: allowed),
+                         let url = URL(string: "https://fanyi.youdao.com/translate?&doctype=json&type=AUTO&i=\(encoded)") {
+                          var req = URLRequest(url: url)
+                          req.timeoutInterval = 2.2
+                          req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+                          if let (data, _) = try? await URLSession.shared.data(for: req),
+                             let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                             let transArr = json["translateResult"] as? [[[String: Any]]] {
+                              let tgt = transArr.flatMap { $0 }.compactMap { $0["tgt"] as? String }.joined()
+                              if !tgt.isEmpty {
+                                  result[cue.id] = polishChineseByStyle(tgt, duration: cue.duration, style: style, videoTitle: videoTitle, videoAuthor: videoAuthor)
+                                  continue
+                              }
+                          }
+                      }
+                      if let initZH = cue.initialPlatformZH, !initZH.isEmpty {
+                          result[cue.id] = polishChineseByStyle(initZH, duration: cue.duration, style: style, videoTitle: videoTitle, videoAuthor: videoAuthor)
                       }
                   }
                   return result
               }
 
-              /// 整段上下文感知的 Google GTX 翻译：
-              /// 将视频主题、前文语境与当前批次拼接在【同一自然段（不含换行符）】内并前置领域术语消歧，让 NMT 注意力机制跨句消歧，再按目标风格进行口语精修！
+              /// 整段上下文感知的 Google GTX + 有道神经双擎翻译：
+              /// 优先尝试 Google GTX 整段联译；若当前网络环境（如国内仅代理 YouTube 域名）无法直连 translate.googleapis.com，立即通过熔断器无感切换至 50ms 极速响应的有道神经网络多行翻译！
               func contextualParagraphGTXTranslate(
                   cues: [SubtitleCue],
                   contextBefore: [SubtitleCue],
@@ -3225,85 +3332,57 @@ jobs:
                   var result: [UUID: String] = [:]
                   let chunkSize = 6
 
+                  var allowed = CharacterSet.urlQueryAllowed
+                  allowed.remove(charactersIn: "&+=?;#")
+
                   for start in stride(from: 0, to: cues.count, by: chunkSize) {
                       let end = min(start + chunkSize, cues.count)
                       let chunk = Array(cues[start..<end])
 
-                      // 1) 单行连贯自然段（不含 \n，前置视频主题语境与领域消歧，使神经翻译模型利用整段注意力消除代词和行话歧义）
-                      let numberedParagraph = chunk.enumerated().map { idx, cue in
-                          let prepped = preprocessSourceWithDomainContext(cue.originalText, videoTitle: videoTitle, videoAuthor: videoAuthor)
-                          return "(\(idx + 1)) \(prepped)"
-                      }.joined(separator: " ; ")
+                      if Date() >= Self.gtxCooldownUntil {
+                          // 1) Google GTX 多行领域消歧批量翻译
+                          let multiLine = chunk.map {
+                              preprocessSourceWithDomainContext($0.originalText, videoTitle: videoTitle, videoAuthor: videoAuthor)
+                                  .replacingOccurrences(of: "\n", with: " ")
+                                  .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                          }.joined(separator: "\n")
 
-                      if let encoded = numberedParagraph.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-                         let url = URL(string: "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-CN&dt=t&q=\(encoded)") {
-                          var req = URLRequest(url: url)
-                          req.timeoutInterval = 3.5
-                          req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
-                          if let (data, _) = try? await URLSession.shared.data(for: req),
-                             let arr = try? JSONSerialization.jsonObject(with: data) as? [Any],
-                             let sentences = arr.first as? [[Any]] {
-                              let fullTranslated = sentences.compactMap { $0.first as? String }.joined()
-                              let extracted = extractNumberedSegments(from: fullTranslated, count: chunk.count)
-                              if extracted.count == chunk.count {
-                                  for (idx, cue) in chunk.enumerated() {
-                                      let cleaned = extracted[idx]
-                                          .trimmingCharacters(in: CharacterSet(charactersIn: " ;；,，"))
-                                      result[cue.id] = polishChineseByStyle(cleaned, duration: cue.duration, style: style, videoTitle: videoTitle, videoAuthor: videoAuthor)
+                          if let encoded = multiLine.addingPercentEncoding(withAllowedCharacters: allowed),
+                             let url = URL(string: "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-CN&dt=t&q=\(encoded)") {
+                              var req = URLRequest(url: url)
+                              req.timeoutInterval = 2.0
+                              req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+                              if let (data, resp) = try? await URLSession.shared.data(for: req),
+                                 let http = resp as? HTTPURLResponse, http.statusCode == 200,
+                                 let arr = try? JSONSerialization.jsonObject(with: data) as? [Any],
+                                 let sentences = arr.first as? [[Any]] {
+                                  let fullTranslated = sentences.compactMap { $0.first as? String }.joined()
+                                  let lines = fullTranslated
+                                      .components(separatedBy: "\n")
+                                      .map { $0.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) }
+                                      .filter { !$0.isEmpty }
+                                  if lines.count == chunk.count {
+                                      for (idx, cue) in chunk.enumerated() {
+                                          result[cue.id] = polishChineseByStyle(lines[idx], duration: cue.duration, style: style, videoTitle: videoTitle, videoAuthor: videoAuthor)
+                                      }
+                                      continue
                                   }
-                                  continue
+                              } else {
+                                  // translate.googleapis.com 在当前网络不可达，开启 120s 熔断，后续批次 0ms 直接走有道神经网络引擎！
+                                  Self.gtxCooldownUntil = Date().addingTimeInterval(120)
                               }
                           }
                       }
 
-                      // 2) 多行领域消歧批量翻译回退
-                      let multiLine = chunk.map {
-                          preprocessSourceWithDomainContext($0.originalText, videoTitle: videoTitle, videoAuthor: videoAuthor)
-                              .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-                      }.joined(separator: "\n")
-
-                      if let encoded = multiLine.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-                         let url = URL(string: "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-CN&dt=t&q=\(encoded)") {
-                          var req = URLRequest(url: url)
-                          req.timeoutInterval = 3.5
-                          req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
-                          if let (data, _) = try? await URLSession.shared.data(for: req),
-                             let arr = try? JSONSerialization.jsonObject(with: data) as? [Any],
-                             let sentences = arr.first as? [[Any]] {
-                              let fullTranslated = sentences.compactMap { $0.first as? String }.joined()
-                              let lines = fullTranslated
-                                  .components(separatedBy: "\n")
-                                  .map { $0.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) }
-                                  .filter { !$0.isEmpty }
-                              if lines.count == chunk.count {
-                                  for (idx, cue) in chunk.enumerated() {
-                                      result[cue.id] = polishChineseByStyle(lines[idx], duration: cue.duration, style: style, videoTitle: videoTitle, videoAuthor: videoAuthor)
-                                  }
-                                  continue
-                              }
-                          }
-                      }
-
-                      // 3) 逐句领域消歧兜底
-                      for cue in chunk {
-                          if result[cue.id] != nil { continue }
-                          let prepped = preprocessSourceWithDomainContext(cue.originalText, videoTitle: videoTitle, videoAuthor: videoAuthor)
-                          guard let encoded = prepped.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-                                let url = URL(string: "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-CN&dt=t&q=\(encoded)") else {
-                              continue
-                          }
-                          var req = URLRequest(url: url)
-                          req.timeoutInterval = 3.0
-                          req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
-                          if let (data, resp) = try? await URLSession.shared.data(for: req),
-                             let http = resp as? HTTPURLResponse, http.statusCode == 200,
-                             let arr = try? JSONSerialization.jsonObject(with: data) as? [Any],
-                             let sentences = arr.first as? [[Any]] {
-                              let translated = sentences.compactMap { $0.first as? String }.joined()
-                              if !translated.isEmpty {
-                                  result[cue.id] = polishChineseByStyle(translated, duration: cue.duration, style: style, videoTitle: videoTitle, videoAuthor: videoAuthor)
-                              }
-                          }
+                      // 2) 有道神经网络多行上下文极速引擎（国内直连 50ms 响应）
+                      let ydMap = await youdaoContextualBatchTranslate(
+                          cues: chunk,
+                          videoTitle: videoTitle,
+                          videoAuthor: videoAuthor,
+                          style: style
+                      )
+                      for (k, v) in ydMap {
+                          result[k] = v
                       }
                   }
                   return result
@@ -3621,6 +3700,7 @@ jobs:
               var pausedTickCount: Int = 0
               static var edgeGatewayCooldownUntil: Date = .distantPast
               static var openAIFMCooldownUntil: Date = .distantPast
+              static var googleTTSCooldownUntil: Date = .distantPast
 
               var lastSpokenCueID: UUID?
               var currentlySpeakingCue: SubtitleCue?
@@ -4118,20 +4198,42 @@ jobs:
               }
 
               static func downloadGoogleTTSData(text: String, langCode: String) async -> Data? {
-                  guard let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-                        let url = URL(string: "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=\(langCode)&q=\(encoded)") else {
+                  var allowed = CharacterSet.urlQueryAllowed
+                  allowed.remove(charactersIn: "&+=?;#")
+                  guard let encoded = text.addingPercentEncoding(withAllowedCharacters: allowed) else {
                       return nil
                   }
-                  var request = URLRequest(url: url)
-                  request.timeoutInterval = 3.5
-                  request.setValue(
-                      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
-                      forHTTPHeaderField: "User-Agent"
-                  )
-                  if let (data, resp) = try? await URLSession.shared.data(for: request),
-                     let http = resp as? HTTPURLResponse, http.statusCode == 200,
-                     isValidAudioData(data, response: resp) {
-                      return data
+
+                  // 1) 若 Google TTS 未处于熔断期，优先尝试 Google TTS (1.4s 快速超时)
+                  if Date() >= googleTTSCooldownUntil,
+                     let url = URL(string: "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=\(langCode)&q=\(encoded)") {
+                      var request = URLRequest(url: url)
+                      request.timeoutInterval = 1.4
+                      request.setValue(
+                          "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+                          forHTTPHeaderField: "User-Agent"
+                      )
+                      if let (data, resp) = try? await URLSession.shared.data(for: request),
+                         let http = resp as? HTTPURLResponse, http.statusCode == 200,
+                         isValidAudioData(data, response: resp) {
+                          return data
+                      }
+                      googleTTSCooldownUntil = Date().addingTimeInterval(120)
+                  }
+
+                  // 2) 国内直连 0.12s 极速有道语音合成 CDN (dict.youdao.com)，无需代理即可返回高清 MP3 并接入 AVAudioUnitTimePitch 变调管线！
+                  if let ydURL = URL(string: "https://dict.youdao.com/dictvoice?audio=\(encoded)&le=zh") {
+                      var ydReq = URLRequest(url: ydURL)
+                      ydReq.timeoutInterval = 2.2
+                      ydReq.setValue(
+                          "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+                          forHTTPHeaderField: "User-Agent"
+                      )
+                      if let (data, resp) = try? await URLSession.shared.data(for: ydReq),
+                         let http = resp as? HTTPURLResponse, http.statusCode == 200,
+                         isValidAudioData(data, response: resp) {
+                          return data
+                      }
                   }
                   return nil
               }
@@ -4593,14 +4695,9 @@ jobs:
                                   }
                                   .frame(maxWidth: .infinity, alignment: .leading)
 
-                                  // 直接唤起 HTML5 <video> 原生 AirPlay 视频画面投屏选择器（避免空 AVRoutePickerView 仅投送音频）
-                                  Button {
-                                      playerController.triggerVideoAirPlayPicker()
-                                  } label: {
-                                      Image(systemName: "airplayvideo")
-                                          .font(.title3)
-                                          .foregroundStyle(.primary)
-                                  }
+                                  // 挂载原生 AVRoutePickerView（prioritizesVideoDevices = true），供控制栏及“画面投屏”按钮直接弹出系统 AirPlay 面板
+                                  AirPlayRoutePickerButton()
+                                      .frame(width: 28, height: 28)
 
                                   Button {
                                       toggleFavoriteCurrentVideo()
@@ -5250,19 +5347,36 @@ jobs:
                   }
 
                   playerController.onWebViewCaptionsCaptured = { rawPayload, translatedPayload, isChinese in
-                      // 始终保留 YouTube 已返回的 translatedPayload (tlang=zh-Hans) 作为 0 秒即时中文配音种子，再由后台上下文翻译无缝升级！
+                      // 始终保留 YouTube 网页端返回的 translatedPayload (tlang=zh-Hans) 作为 0 秒即时中文配音种子！
                       let parsed = transcriptService.parseRawCaptionPayload(
                           rawPayload,
                           translatedRawText: translatedPayload,
                           alreadyChinese: isChinese
                       )
                       guard !parsed.isEmpty else { return }
-                      if self.cues.count <= 2 {
+                      let existingTranslated = self.cues.filter { !($0.translatedZH ?? "").isEmpty }.count
+                      let newTranslated = parsed.filter { !($0.translatedZH ?? "").isEmpty }.count
+
+                      if self.cues.count <= 2 || (existingTranslated == 0 && newTranslated > 0) {
                           self.cues = parsed
                           self.isLoadingCaptions = false
                           self.translationTask?.cancel()
                           self.translationTask = Task {
                               await translateLoadedCues(parsed)
+                          }
+                      } else if newTranslated > 0 {
+                          // 将 WebView 捕获到的官方内译补充进已有字幕中作为保底种子
+                          for i in 0..<self.cues.count {
+                              let t = self.cues[i].startTime
+                              if let matched = parsed.min(by: { abs($0.startTime - t) < abs($1.startTime - t) }),
+                                 abs(matched.startTime - t) < 2.0,
+                                 let zh = matched.initialPlatformZH, !zh.isEmpty {
+                                  self.cues[i].initialPlatformZH = zh
+                                  if (self.cues[i].translatedZH ?? "").isEmpty {
+                                      self.cues[i].translatedZH = zh
+                                      self.cues[i].translatedByProvider = "官方内译"
+                                  }
+                              }
                           }
                       }
                   }
@@ -5322,15 +5436,16 @@ jobs:
                   dubbingEngine.clearPrefetchCache()
 
                   if activeProvider == .youtubeBuiltIn {
-                      // 若切换回「官方内译」，优先恢复缓存的平台原生直译，缺失部分再由后台补齐
                       for i in 0..<cues.count {
-                          cues[i].translatedZH = cues[i].initialPlatformZH
-                          cues[i].translatedByProvider = cues[i].initialPlatformZH != nil ? "官方内译" : nil
+                          if let initZH = cues[i].initialPlatformZH, !initZH.isEmpty {
+                              cues[i].translatedZH = initZH
+                              cues[i].translatedByProvider = "官方内译"
+                          }
                       }
                   } else {
+                      // 保留已有译文作为无缝过渡（绝不置空导致“正在翻译中文字幕...”无配音），并将徽章标记为正在重译
                       for i in 0..<cues.count {
-                          cues[i].translatedZH = nil
-                          cues[i].translatedByProvider = nil
+                          cues[i].translatedByProvider = "重译中..."
                       }
                   }
 
@@ -5649,6 +5764,11 @@ jobs:
                                           .foregroundStyle(.secondary)
                                   }
                                   Slider(value: $dubbingEngine.baseSpeechRateMultiplier, in: 0.9...1.3, step: 0.02)
+                              }
+                              Button {
+                                  dubbingEngine.notifyVoiceOrEngineChanged()
+                              } label: {
+                                  Label("立即试听当前选中音色 (\(dubbingEngine.currentVoiceShortName))", systemImage: "play.wave.2.fill")
                               }
                               Button {
                                   dubbingEngine.notifyVoiceOrEngineChanged()
