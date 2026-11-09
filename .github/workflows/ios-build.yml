@@ -1,4 +1,4 @@
-name: iOS Build & Unsigned IPA (Zero-Unzip Standalone Workflow v3.9)
+name: iOS Build & Unsigned IPA (Zero-Unzip Standalone Workflow v3.9.1)
 
 on:
   push:
@@ -28,9 +28,9 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Bootstrap iOS Project Source Files (免解压自动写入完整工程源码 v3.9)
+      - name: Bootstrap iOS Project Source Files (免解压自动写入完整工程源码 v3.9.1)
         run: |
-          echo "正在生成/更新完整 iOS 工程源码 v3.9（含上下文感知同传翻译、防黑屏修复与 AVAudioEngine 变调音色引擎）..."
+          echo "正在生成/更新完整 iOS 工程源码 v3.9.1（含上下文感知同传翻译、防黑屏修复与 AVAudioEngine 变调音色引擎）..."
           mkdir -p YouTubeDubber/Models YouTubeDubber/Services YouTubeDubber/Views
           cat << 'EOF_FILE' > project.yml
           name: YouTubeDubber
@@ -74,8 +74,8 @@ jobs:
               settings:
                 base:
                   PRODUCT_BUNDLE_IDENTIFIER: com.ai.youtubedubber.app
-                  MARKETING_VERSION: "3.9.0"
-                  CURRENT_PROJECT_VERSION: "15"
+                  MARKETING_VERSION: "3.9.1"
+                  CURRENT_PROJECT_VERSION: "16"
                   CODE_SIGN_STYLE: Automatic
                   ENABLE_USER_SCRIPT_SANDBOXING: NO
           EOF_FILE
@@ -99,9 +99,9 @@ jobs:
               <key>CFBundlePackageType</key>
               <string>APPL</string>
               <key>CFBundleShortVersionString</key>
-              <string>3.9.0</string>
+              <string>3.9.1</string>
               <key>CFBundleVersion</key>
-              <string>15</string>
+              <string>16</string>
               <key>UILaunchScreen</key>
               <dict/>
               <key>UIBackgroundModes</key>
@@ -3215,12 +3215,11 @@ jobs:
                                   let parsed = parseIndexedLLMOutput(content: rawTxt, cues: chunk, polishStyle: polishStyle, videoTitle: videoTitle, videoAuthor: videoAuthor)
                                   for (k, v) in parsed { chunkMap[k] = v }
                               }
-                          }
-                      }
-
-                              if chunkMap.isEmpty {
-                                  Self.pollinationsCooldownUntil = Date().addingTimeInterval(90)
                               }
+                          }
+
+                          if chunkMap.isEmpty {
+                              Self.pollinationsCooldownUntil = Date().addingTimeInterval(90)
                           }
                       }
 
@@ -5764,6 +5763,11 @@ jobs:
                                           .foregroundStyle(.secondary)
                                   }
                                   Slider(value: $dubbingEngine.baseSpeechRateMultiplier, in: 0.9...1.3, step: 0.02)
+                              }
+                              Button {
+                                  dubbingEngine.notifyVoiceOrEngineChanged()
+                              } label: {
+                                  Label("立即试听当前选中音色 (\(dubbingEngine.currentVoiceShortName))", systemImage: "play.wave.2.fill")
                               }
                               Button {
                                   dubbingEngine.notifyVoiceOrEngineChanged()
